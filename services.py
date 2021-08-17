@@ -1,19 +1,20 @@
+"""
+Author: Isaac Drachman
+Date: 8/16/2021
+
+Simple API clients for various financial data providers -- mostly AlphaVantage. 
+"""
+
 import pandas as pd
 import numpy as np
 import requests
-import time
-import pickle
 import quandl
-import os
 
 from urllib.request import urlopen
 from zipfile import ZipFile
-
 from bs4 import BeautifulSoup
-from typing import Dict, List
 from io import StringIO
-
-div_frequency = {'monthly': 12, 'quarterly': 4}
+from typing import Dict, List
 
 
 class AlphaVantage:

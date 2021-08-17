@@ -1,3 +1,13 @@
+"""
+Author: Isaac Drachman
+Date: 8/16/2021
+
+Code for downloading stock and other financial data, processing/transforming, and computing derived statistics.
+"""
+
+from .services import AlphaVantage as av
+from .services import Quandl as ql
+
 import pandas as pd
 import numpy as np
 import os
@@ -5,19 +15,12 @@ import scipy.optimize as opt
 import requests
 
 from bs4 import BeautifulSoup as Soup
-
-from .services import AlphaVantage as av
-from .services import Quandl as ql
-
 from datetime import datetime
-from datetime import timedelta
-from pandas.tseries.offsets import DateOffset
 from sklearn.linear_model import LinearRegression as OLS
 from urllib.request import urlopen
 from zipfile import ZipFile
 from bs4 import BeautifulSoup
 from io import StringIO
-
 from typing import Dict, List, Tuple
 
 
@@ -511,39 +514,3 @@ def snapshot(symbols: List[str], from_date=None):
     metrics['sharpe']  /= 100.0
     metrics['sortino'] /= 100.0
     return metrics.style.format('{:.1f}%').format({'sharpe': '{:.2f}', 'sortino': '{:.2f}'})
-
-
-# TODO: delete these functions
-
-def align(discrete: pd.Series, daily: pd.Series) -> pd.Series:
-    """
-    Create series with index of daily and last prior value from discrete.
-
-    discrete: pd.Series with datetime index
-    daily:    pd.Series with datetime index
-    """
-    new = []
-    for idx in daily.index:
-        if idx > discrete.index[-1]:
-            new.append(discrete[-1])
-        else:
-            new.append(discrete[idx:][0])
-    return pd.Series(new, index=daily.index)
-
-
-def align_to_index(discrete: pd.Series, daily: pd.Series) -> pd.Series:
-    """
-    Create series with index of daily and corresponding period values from discrete.
-
-    discrete: pd.Series with period index
-    daily:    pd.Series with datetime index
-    """
-    new = pd.Series()
-    for idx, group in daily.groupby(daily.index.to_period(freq=discrete.index.freq)):
-        this_period = group.copy()
-        if idx in discrete.index:
-            this_period[this_period.index] = discrete[idx]
-        else:
-            this_period[this_period.index] = np.nan
-        new = new.append(this_period)
-    return new

@@ -1,18 +1,23 @@
+"""
+Author: Isaac Drachman
+Date: 8/16/2021
+
+Factor decomposition, taxable portfolio analysis, and MC portfolio projections.
+"""
+
+from . import risk
+
 import pandas as pd
 import numpy as np
-from . import risk
 import time
-
 import scipy.stats as stat
 
 from sklearn.linear_model import LinearRegression as OLS
 from sklearn.metrics import r2_score
-from pandas.tseries.offsets import BQuarterEnd, BYearEnd, BQuarterBegin
-from typing import Dict, List, Tuple
-
 from scipy.optimize import minimize, differential_evolution
 from statsmodels.distributions.empirical_distribution import ECDF
 from arch.univariate import ConstantMean, ZeroMean, GARCH, GeneralizedError, Normal
+from typing import Dict, List, Tuple
 
 
 def process_returns(series: pd.Series, window=5):
