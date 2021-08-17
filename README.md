@@ -93,3 +93,6 @@ These are single ETF factors meant to represent basic portfolio building blocks.
 |<b>alternatives</b>|
 |US REITs|IYR|
 |Commodities|GSG|
+
+#### <code>sector</code>
+Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
