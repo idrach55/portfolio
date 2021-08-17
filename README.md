@@ -41,12 +41,28 @@ r_squared, pred, df = analytics.decompose(prices['AAPL'], factors)
 
 ## In-Depth Analytics
 ### Factors
-I set up 3 factor sets: <code>style</code>, <code>asset</code>, and <code>sector</code>. Each of these are built out of the total returns on ETFs because I couldn't find a free/cheap factor index data source. Naturally one issue is that all the components have a management fee bleed. 
+I set up 3 factor sets: <code>style</code>, <code>asset</code>, and <code>sector</code>. Each of these are built out of the total returns on ETFs because I couldn't find a free/cheap factor index data source. I generally aimed to use ETFs with 5y+ history. One issue with ETFs is that they bleed by their management fees. Further, less liquid ETFs may appear more volatile than their underlying asset(s). 
 #### <code>style</code>
-Loosely based on the usual sort of quant factors. I did some testing/design with the intent for them to be generally orthogonal. These formulae refer to the tickers of each ETF.
+Loosely based on the usual sort of quant factors. I did some testing/design with the intent for them to be mostly orthogonal. These formulae refer to the tickers of each ETF.
 |factor name|formula|description|
 |-----------|-------|-----|
-|equities|=VT|vanguard total world market|
-|rates|=IEI|ishares 3-7 year bond etf|
-|credit|=HYG-IEI|spread between ishares high yield and treasury|
-|commods|=GSG|ishares gs commodity index|
+|<b>core macro</b>|
+|equities|VT|vanguard total world market|
+|rates|IEI|ishares 3-7 year bond etf|
+|credit|HYG - IEI|spread btwn ishares high yield and treasury|
+|commods|GSG|ishares gs commodity index|
+|<b>secondary macro</b>|
+|inflation|TIP - beta x IEF|ishares tips statically hedged with 7-10y treasury|
+|emerging|0.5 x (EEM - VTI + EMB - IEF)|average of EM vs US equity & bond spreads|
+|usequity|VTI - EFA|spread btwn US and non-US developed mkt equities|
+|usdollar|UUP|invesco dollar index|
+|<b>macro style</b>|
+|shortvol|PUTW - beta x VTI|statically hedged put-write strategy|
+|municipal|MUB - IEF|spread btwn investment grade munis and 7-10y treasury|
+|realestate|IYR - VTI|spread btwn REITs and equities|
+|<b>equity style</b>|
+|smallcap|IWM - VTI|russell 2k vs VTI (mostly S&P 500 like)|
+|lowrisk|USMV - VTI|large cap low vol vs VTI|
+|momentum|MTUM - VTI|large cap momentum vs VTI|
+|quality|QUAL - VTI|large cap quality vs VTI|
+|value|IWD - IWF|russell 1k value vs russel 1k growth| 
