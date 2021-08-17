@@ -68,7 +68,7 @@ Loosely based on the usual sort of quant factors. I did some testing/design with
 |value|IWD - IWF|russell 1k value vs russel 1k growth| 
 
 #### <code>asset</code>
-These are long-only, single ETF factors meant to represent basic portfolio building blocks.
+These are single ETF factors meant to represent basic portfolio building blocks.
 |factor name|ETF|
 |-----------|---|
 |<b>fixed income and cash<b>|
