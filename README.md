@@ -49,16 +49,16 @@ Loosely based on the usual sort of quant factors. I did some testing/design with
 |<b>core macro</b>|
 |equities|VT|vanguard total world market|
 |rates|IEI|ishares 3-7 year bond etf|
-|credit|HYG - IEI|spread btwn ishares high yield and treasury|
+|credit|HYG - IEI|ishares high yield vs 3-7y treasuries|
 |commods|GSG|ishares gs commodity index|
 |<b>secondary macro</b>|
-|inflation|TIP - beta x IEF|ishares tips statically hedged with 7-10y treasury|
+|inflation|TIP - beta x IEF|ishares tips statically hedged with 7-10y treasuries|
 |emerging|0.5 x (EEM - VTI + EMB - IEF)|average of EM vs US equity & bond spreads|
-|usequity|VTI - EFA|spread btwn US and non-US developed mkt equities|
+|usequity|VTI - EFA|US vs non-US developed mkt equities|
 |usdollar|UUP|invesco dollar index|
 |<b>macro style</b>|
 |shortvol|PUTW - beta x VTI|statically hedged put-write strategy|
-|municipal|MUB - IEF|spread btwn investment grade munis and 7-10y treasury|
+|municipal|MUB - IEF|ishares investment grade munis vs 7-10y treasuries|
 |realestate|IYR - VTI|spread btwn REITs and equities|
 |<b>equity style</b>|
 |smallcap|IWM - VTI|russell 2k vs VTI (mostly S&P 500 like)|
@@ -66,3 +66,30 @@ Loosely based on the usual sort of quant factors. I did some testing/design with
 |momentum|MTUM - VTI|large cap momentum vs VTI|
 |quality|QUAL - VTI|large cap quality vs VTI|
 |value|IWD - IWF|russell 1k value vs russel 1k growth| 
+
+#### <code>asset</code>
+These are long-only, single ETF factors meant to represent basic portfolio building blocks.
+|factor name|ETF|
+|-----------|---|
+|<b>fixed income and cash<b>|
+|US Cash|BIL|
+|US Mid Treasuries|IEF|
+|US Long Treasuries|TLT|
+|US Inflation-Linked|TIP|
+|US IG Corp Bonds|LQD|
+|US Agg Bonds|AGG|
+|US HY Bonds|HYG|
+|EM Sovereign Debt|EMB|
+|US Muni 1-15 Yr Blend|MUB|
+|US Muni High Yield|HYD|
+|<b>equities</b>|
+|US Large Cap|VV|
+|US Mid Cap|VO|
+|US Small Cap|VB|
+|EAFE Equity|VEA|
+|EM Equity|VWO|
+|US Equity Value|VTV|
+|US Equity Dividend|VYM|
+|<b>alternatives</b>|
+|US REITs|IYR|
+|Commodities|GSG|
