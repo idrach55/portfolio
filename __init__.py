@@ -1,3 +1,3 @@
-import risk
-import analytics
-import services
+from . import risk
+from . import analytics
+from . import services

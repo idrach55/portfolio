@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import risk
+from . import risk
 import time
 
 import scipy.stats as stat

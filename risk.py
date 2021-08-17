@@ -6,18 +6,15 @@ import requests
 
 from bs4 import BeautifulSoup as Soup
 
-from services import AlphaVantage as av
-from services import Quandl as ql
+from .services import AlphaVantage as av
+from .services import Quandl as ql
 
 from datetime import datetime
 from datetime import timedelta
 from pandas.tseries.offsets import DateOffset
-
 from sklearn.linear_model import LinearRegression as OLS
-
 from urllib.request import urlopen
 from zipfile import ZipFile
-
 from bs4 import BeautifulSoup
 from io import StringIO
 
@@ -32,7 +29,7 @@ def download_rental_data(key='All'):
     """
     categories = ['medianAskingRent_{}'.format(key), 'rentalInventory_{}'.format(key)]
     for cat in categories:
-        if '{}.csv'.format(cat) in os.listdir('data/'):
+        if '{}.csv'.format(cat) in os.listdir('data'):
             os.remove('data/{}.csv'.format(cat))
 
         url = 'https://streeteasy-market-data-download.s3.amazonaws.com/rentals/{}/{}.zip'.format(key, cat)
@@ -210,7 +207,7 @@ def is_symbol_cached(symbol: str):
     returns -1, None if symbol not cached, otherwise data age, filename
     """
 
-    existing_data = os.listdir('data/')
+    existing_data = os.listdir('data')
     existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
     if symbol in existing_syms.keys():
         fname = existing_syms[symbol]
