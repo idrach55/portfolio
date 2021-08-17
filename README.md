@@ -1,5 +1,5 @@
 # portfolio
-Portfolio analytics tools I built for the family office investments I manage.
+Quantitative portfolio analytics I built for the investments I manage.
 
 ## Components
 <code>service.py</code><br>
