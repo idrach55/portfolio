@@ -42,6 +42,10 @@ r_squared, pred, df = analytics.decompose(prices['AAPL'], factors)
 ## In-Depth Analytics
 ### Factors
 I set up 3 factor sets: <code>style</code>, <code>asset</code>, and <code>sector</code>. Each of these are built out of the total returns on ETFs because I couldn't find a free/cheap factor index data source. I generally aimed to use ETFs with 5y+ history. One issue with ETFs is that they bleed by their management fees. Further, less liquid ETFs may appear more volatile than their underlying asset(s). 
+
+There are 2 functions to perform decomposition:<br>
+<code>analytics.decompose</code> -- Ordinary least-squares linear regression.<br>
+<code>analytics.decompose_const</code> -- Uses <code>scipy.minimize</code> on the sum-of-squares constraining the coefficients to be long-only and sum to unity. This can be useful for finding an approximate portfolio without shorting/leverage.
 #### <code>style</code>
 Loosely based on the usual sort of quant factors. I did some testing/design with the intent for them to be mostly orthogonal. These formulae refer to the tickers of each ETF.
 |factor name|formula|description|
@@ -96,3 +100,12 @@ These are single ETF factors meant to represent basic portfolio building blocks.
 
 #### <code>sector</code>
 Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
+
+### Portfolio Monte Carlo
+The class <code>analytics.MCPortfolio</code> runs generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon.
+
+#### Underlying Dynamics
+A GARCH(1,1) model with Normal innovations is fit to each security. A correlation matrix is computed among the residuals <code>u_t / sigma_t</code> to parameterize a multivariate Normal which is sampled as the noise for the simulation.
+
+#### Portfolio Building
+The class outputs quarterly values. It keeps constant weights, rebalancing quarterly with capital gains taxes. It also pays roughly the appropriate income or qualified dividend tax rate on each security. Withdrawals  and fees are also taken out quarterly if specified.    
