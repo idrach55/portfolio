@@ -95,7 +95,8 @@ def process_jpm(fname: str, save=True):
     # Drop content at & below FOOTNOTES row. 
     df = df.iloc[:df.loc[df['Asset Class'] == 'FOOTNOTES'].index[0]]
 
-    # Municipal bonds show NaN tickers under Tax-Exempt Core.
+    # Municipal bonds show NaN tickers under Tax-Exempt Core, replace with IG muni ETF.
+    # Replace cash with T-Bill ETF and preferred stocks with ETF.
     new_tickers = []
     for idx, row in df.iterrows():
         if not pd.isna(row.Ticker) and ' ' in row.Ticker:
@@ -297,7 +298,7 @@ Hardcoded (unfortunately) asset classes for some mutual funds so the right tax t
 """
 fund_categories = {'VWALX': 'National Munis', 'VWIUX': 'National Munis', 'VWITX': 'National Munis', 'VMMXX': 'MM Bond', 'SDSCX': 'Equity', 'JTISX': 'National Munis', 'TXRIX': 'National Munis', 
                    'VWEAX': 'HY Bond', 'VFSUX':'Bond', 'MAYHX': 'National Munis', 'VIPSX': 'Inflation Bond', 'SAMHX': 'HY Bond', 'ARTKX': 'Equity', 'JMSIX': 'Bond', 'KGGAX': 'Equity', 'LLPFX': 'Equity', 
-                   'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond'}
+                   'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond', 'VFIDX': 'Bond', 'JHEQX': 'Equity'}
 default_brackets = {'fed':0.388, 'state':0.068, 'div':0.306}
 
 def taxes_by_asset(assets: List[str], brackets: Dict[str, float]):
@@ -398,8 +399,7 @@ class TaxablePortfolio:
 
     def get_metrics(self, align=False):
         """
-        Get metrics for underlyings and portfolio. Include taxable yield (by divs) in sharpe, but
-        show yields as taxable (by income) in dataframe.
+        Get metrics for underlyings and portfolio. Include taxable yield (by divs) in sharpe, but show yields as taxable (by income) in dataframe.
         """
         # Compute volatility of post-tax dividend yield
         divstd, divdraw = risk.get_div_vol(self.data)
@@ -429,9 +429,8 @@ class TaxablePortfolio:
         ann_divs = risk.agg_to_period(self.total_inco, freq='A')
         divstd   = ann_divs.std() / ann_divs.mean()
         divdraw  = risk.get_max_drawdown(ann_divs)
-        pmetrics = pd.Series({'pr': np.dot(self.basket, metrics.pr), 'tr': np.dot(self.basket, metrics.tr),
-                              'vol': vol, 'sharpe': sharpe, 'sortino': sortino,
-                              'maxdraw': risk.get_max_drawdown(self.value), 'divs': np.dot(self.yields, self.basket),
+        pmetrics = pd.Series({'pr': np.dot(self.basket, metrics.pr), 'tr': np.dot(self.basket, metrics.tr), 'vol': vol, 'sharpe': sharpe, 
+                              'sortino': sortino, 'maxdraw': risk.get_max_drawdown(self.value), 'divs': np.dot(self.yields, self.basket),
                               'live': self.prices.index[0], 'divstd': divstd, 'divdraw': divdraw})
         pmetrics.name = 'portfolio'
         return metrics.append(pmetrics)[['pr','tr','vol','sharpe','sortino','maxdraw','divs','divstd','divdraw','live']], covar
@@ -452,9 +451,9 @@ class MCPortfolio:
         sigma_last = np.array([fit.conditional_volatility[-1] for fit in fits.values()])
 
         # Drift is either given or uses historical average.
-        log_r = np.log(self.prices/self.prices.shift(1))
-        drifts = drifts if drifts is not None else 252.0 * log_r.mean()
-        self.paths = garch_mc(drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
+        log_r = np.log(self.prices.dropna()/self.prices.dropna().shift(1))
+        self.drifts = drifts if drifts is not None else 252.0 * log_r.mean()
+        self.paths = garch_mc(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
 
     def build(self, init_value, withdraw, fee=0.00):
         N = self.paths.shape[0]
@@ -482,12 +481,22 @@ class MCPortfolio:
 
             self.gains[:,qtr]  = ((shares_to_trade < 0) * -shares_to_trade * (self.paths[:,qtr_index[qtr]] - self.costs[:,qtr-1])).sum(axis=1)
             self.value[:,qtr]  -= (self.gains[:,qtr] > 0) * self.gains[:,qtr] * self.brackets['div']
+        
+        # Snap negative portfolios to zero.
+        for path_idx, step_idx in zip(np.where(self.value <= 0)[0], np.where(self.value <= 0)[1]):
+            self.value[path_idx, step_idx:] = 0.0
 
-    def get_volatility(self):
-        survivors = self.value[np.all(self.value > 0, axis=1)]
-        log_r     = np.log(survivors[:,1:] / survivors[:,:-1])
-        #return np.sqrt((log_r**2).mean() * 4)
-        return np.sqrt((np.log(1.0 + ((self.paths[:,1:]/self.paths[:,:-1]-1.0) * self.basket.values).sum(axis=2))**2).mean() * 252)
+    def get_vols(self):
+        # Return vol using asset log-returns and basket per path. Rather than taking vol using actual value.
+        survivors = np.all(self.value > 0, axis=1)
+        return  np.sqrt(252*((np.log(self.paths[survivors, 1:] / self.paths[survivors, :-1]) * self.basket.values).sum(axis=2)**2).mean(axis=1))
+
+    def get_prs(self):
+        # Return average quarterly log-return in annualized terms per path.
+        return np.log(self.value[:,1:]/self.value[:,:-1]).mean(axis=1) * 4
+
+    def get_max_drawdowns(self):
+        return [risk.get_max_drawdown(path) for path in self.value]
 
     def get_loss_probs(self, losses=[0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50]):
         loss_probs = pd.DataFrame()

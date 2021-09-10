@@ -3,13 +3,15 @@ Quantitative portfolio analytics I built for the investments I manage.
 
 ## Components
 <code>service.py</code><br>
-Lightweight API clients for various financial data providers. Most heavily used is AlphaVantage, through which up to 20 years of prices, splits, dividends, and earnings can be retrieved for stocks, ETFs, and mutual funds. Quandl is supported for a few datasets as well. Also includes Polygon and IEX which I briefly tried out. Auth keys are retrieved from plaintext files with ending ".keys" from a "keys" folder in the directory the code is being run from.
+Lightweight API clients for various financial data providers. Most heavily used is AlphaVantage, through which up to 20 years of prices, dividends, and earnings can be retrieved for stocks, ETFs, and mutual funds. Quandl is supported for a few datasets as well. Also includes Polygon and IEX which I briefly tried out. 
 
 <code>risk.py</code><br>
 Retrieves, processes, and runs some metrics on data. 
 
 <code>analytics.py</code><br>
 Factor decomposition, taxable portfolio analysis, and Monte Carlo portfolio projections.
+
+Create two folders in the directory from which this code is executed -- <code>data</code> and <code>keys</code>. The keys folder should hold a plaintext file for each API with ending ".keys" containing the authentication token(s). The data folder is used to cache downloaded prices in csv files. A csv is re-downloaded when its data is requested and the age of the file exceeds a specified threshold (default is 10 days.)  
 
 ## Example
 ### Example 1: basic risk/return data
@@ -102,10 +104,10 @@ These are single ETF factors meant to represent basic portfolio building blocks.
 Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
 
 ### Portfolio Monte Carlo
-The class <code>analytics.MCPortfolio</code> runs generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon.
+The class <code>analytics.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon.
 
 #### Underlying Dynamics
 A GARCH(1,1) model with Normal innovations is fit to each security. A correlation matrix is computed among the residuals <code>u_t / sigma_t</code> to parameterize a multivariate Normal which is sampled as the noise for the simulation.
 
 #### Portfolio Building
-The class outputs quarterly values. It keeps constant weights, rebalancing quarterly with capital gains taxes. It also pays roughly the appropriate income or qualified dividend tax rate on each security. Withdrawals  and fees are also taken out quarterly if specified.    
+The projections output quarterly values along each path. The portfolio maintains constant weights, rebalancing quarterly and paying capital gains taxes if necessary. It also pays roughly the appropriate tax rate on each security. Withdrawals and fees are also taken out quarterly if specified. Using <code>np.quantile</code>, one can examine different percentile values over time. The function <code>get_loss_probs</code> computes what percent of portfolios take a loss at or greater than each threshold within certain timeframes.   

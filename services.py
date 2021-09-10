@@ -45,7 +45,7 @@ class AlphaVantage:
         if adjusted:
             function += '_ADJUSTED'
         url = self.root_url+'function={}&symbol={}&outputsize=full&apikey={}'.format(function, symbol, self.api_key)
-        print(url)
+        #print(url)
         r = requests.get(url)
 
         # If time series key unavailable, data not retrieved - raise error.
@@ -109,6 +109,8 @@ class Fred:
         T10YIE : 10 year treasury inflation breakeven
         BAMLH0A0HYM2EY : BAML HY corp yield index
         BAMLC0A0CMEY   : BAML IG corp yield index
+        CPILFESL       : Urban CPI ex-food & energy
+        VIXCLS         : VIX index
         """
         df = pd.read_csv(self.url.format(symbol),index_col=0)
         df.index = pd.to_datetime(df.index)

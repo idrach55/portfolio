@@ -10,6 +10,8 @@ from .services import Quandl as ql
 
 import pandas as pd
 import numpy as np
+import time
+import tqdm
 import os
 import scipy.optimize as opt
 import requests
@@ -218,6 +220,19 @@ def is_symbol_cached(symbol: str):
         return (datetime.today() - data_date).days, fname
     else:
         return -1, None
+
+
+def load_with_stall(symbols: List[str], data_age_limit=10) -> Dict[str, pd.DataFrame]:
+    counter = 0
+    for symbol in tqdm.tqdm(symbols):
+        is_cached = is_symbol_cached(symbol)[0] 
+        if is_cached != -1 and is_cached > data_age_limit:
+            get_data([symbol], data_age_limit=data_age_limit)
+            counter += 1
+        if counter == 5:
+            time.sleep(60.0)
+            counter = 0
+    return get_data(symbols, data_age_limit=data_age_limit)
 
 
 def get_data(symbols: List[str], data_age_limit=10) -> Dict[str, pd.DataFrame]:
