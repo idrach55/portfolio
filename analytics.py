@@ -298,7 +298,7 @@ Hardcoded (unfortunately) asset classes for some mutual funds so the right tax t
 """
 fund_categories = {'VWALX': 'National Munis', 'VWIUX': 'National Munis', 'VWITX': 'National Munis', 'VMMXX': 'MM Bond', 'SDSCX': 'Equity', 'JTISX': 'National Munis', 'TXRIX': 'National Munis', 
                    'VWEAX': 'HY Bond', 'VFSUX':'Bond', 'MAYHX': 'National Munis', 'VIPSX': 'Inflation Bond', 'SAMHX': 'HY Bond', 'ARTKX': 'Equity', 'JMSIX': 'Bond', 'KGGAX': 'Equity', 'LLPFX': 'Equity', 
-                   'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond', 'VFIDX': 'Bond', 'JHEQX': 'Equity'}
+                   'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond', 'VFIDX': 'Bond', 'JHEQX': 'Equity', 'HLIEX': 'Equity'}
 default_brackets = {'fed':0.388, 'state':0.068, 'div':0.306}
 
 def taxes_by_asset(assets: List[str], brackets: Dict[str, float]):
