@@ -28,6 +28,12 @@ prices = risk.get_prices(data).dropna()
 # covar is the covariance matrix of returns
 table, covar = risk.get_metrics(prices, data=data)
 ```
+Year-to-date performance for multiple ETFs can be incorporated into a chart like the below (labelled by asset class.)
+<img src="https://github.com/idrach55/portfolio/blob/main/plots/ytd-assets.png?raw=true" width=600>
+
+Historic risk/return metrics given a portfolio's composition.
+<img src="https://github.com/idrach55/portfolio/blob/main/plots/historic-metrics.png?raw=true" width=800>
+
 ### Example 2: single security factor decomposition
 ```
 prices = risk.get_prices(risk.get_data(['AAPL']))
@@ -104,7 +110,10 @@ These are single ETF factors meant to represent basic portfolio building blocks.
 Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
 
 ### Portfolio Monte Carlo
-The class <code>analytics.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon.
+The class <code>analytics.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon. 
+
+Performance and max drawdown at different percentiles for a given simulation.
+<img src="https://github.com/idrach55/portfolio/blob/main/plots/portfolio-mc.png?raw=true" width=800>
 
 #### Underlying Dynamics
 A GARCH(1,1) model with Normal innovations is fit to each security. A correlation matrix is computed among the residuals <code>u_t / sigma_t</code> to parameterize a multivariate Normal which is sampled as the noise for the simulation.
