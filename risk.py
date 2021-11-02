@@ -17,7 +17,7 @@ import scipy.optimize as opt
 import requests
 
 from bs4 import BeautifulSoup as Soup
-from datetime import datetime
+from datetime import datetime, date
 from sklearn.linear_model import LinearRegression as OLS
 from urllib.request import urlopen
 from zipfile import ZipFile
@@ -529,3 +529,39 @@ def snapshot(symbols: List[str], from_date=None):
     metrics['sharpe']  /= 100.0
     metrics['sortino'] /= 100.0
     return metrics.style.format('{:.1f}%').format({'sharpe': '{:.2f}', 'sortino': '{:.2f}'})
+
+
+# Bond Math
+def bond_dates(maturity):
+    """
+    Build semi-annual schedule ending at maturity and starting at least today.
+    """
+    dates = pd.period_range(end=maturity, freq='6M', periods=100).to_timestamp()
+    return dates[dates >= datetime.today()] + (pd.to_datetime(maturity) - dates[-1])
+
+def bond_pv(coupon, rate, maturity):
+    """
+    Solve for bond PV assuming semi-annual coupon.
+    """
+    dates = bond_dates(maturity)
+    years = (dates - datetime.today()).days/360
+    return 100.0 * coupon/2 * np.sum(1.0 / (1.0 + rate)**years) + 100.0 / (1.0 + rate)**years[-1]
+
+def bond_rate(pv, coupon, maturity):
+    """
+    Solve for bond yield.
+    """
+    return opt.brentq(lambda rate: bond_pv(coupon, rate, maturity) - pv, -0.05, 0.50)
+
+def bond_call(pv, coupon, rate, maturity):
+    """
+    Solve for call date of bond, given coupon, YTC, and max maturity. Assumes all coupon dates are call dates.
+    """
+    dates = bond_dates(maturity)
+    idx   = -1
+    diff  = np.abs(bond_pv(coupon, rate, dates[0]) - pv)
+    for idx_ in range(len(dates)):
+        if np.abs(bond_pv(coupon, rate, dates[idx_]) - pv) < diff:
+            diff = np.abs(bond_pv(coupon, rate, dates[idx_]) - pv)
+            idx = idx_ 
+    return dates[idx], np.round(bond_pv(coupon, rate, dates[idx]), 2)
