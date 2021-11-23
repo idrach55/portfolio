@@ -558,9 +558,9 @@ def bond_call(pv, coupon, rate, maturity):
     Solve for call date of bond, given coupon, YTC, and max maturity. Assumes all coupon dates are call dates.
     """
     dates = bond_dates(maturity)
-    idx   = -1
+    idx   = 0
     diff  = np.abs(bond_pv(coupon, rate, dates[0]) - pv)
-    for idx_ in range(len(dates)):
+    for idx_ in range(1, len(dates)):
         if np.abs(bond_pv(coupon, rate, dates[idx_]) - pv) < diff:
             diff = np.abs(bond_pv(coupon, rate, dates[idx_]) - pv)
             idx = idx_ 

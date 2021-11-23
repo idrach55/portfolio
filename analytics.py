@@ -465,12 +465,15 @@ class MCPortfolio:
         self.income = np.zeros(shape=(N, qtr_index.shape[0]))
         self.resid  = np.zeros(shape=(N, qtr_index.shape[0]))
 
+        if type(withdraw) == float:
+            withdraw = np.zeros(shape=(qtr_index.shape[0] // 4)) + withdraw
+
         # For each quarter, qtr_index[qtr] = the daily index in paths for that quarter.
         for qtr in range(1, len(qtr_index)):
             # Grow portfolio by performance.
             self.value[:,qtr]  = np.sum(self.shares[:,qtr-1] * self.paths[:,qtr_index[qtr]], axis=1)
             self.income[:,qtr] = np.sum((self.basket * self.yields/4)*(1.0 - self.taxes))*self.value[:,qtr-1]
-            self.resid[:,qtr]  = self.income[:,qtr] - withdraw/4 - self.value[:,qtr-1]*fee/4
+            self.resid[:,qtr]  = self.income[:,qtr] - withdraw[(qtr-1)//4]/4 - self.value[:,qtr-1]*fee/4
             self.value[:,qtr] += self.resid[:,qtr]
             self.shares[:,qtr] = np.outer(self.value[:,qtr], self.basket.values) / self.paths[:,qtr_index[qtr]]
 
@@ -493,10 +496,15 @@ class MCPortfolio:
 
     def get_prs(self):
         # Return average quarterly log-return in annualized terms per path.
-        return np.log(self.value[:,1:]/self.value[:,:-1]).mean(axis=1) * 4
+        survivors = np.all(self.value > 0, axis=1)
+        return np.log(self.value[survivors,1:]/self.value[survivors,:-1]).mean(axis=1) * 4
+
+    def get_undl_paths(self):
+        # Return performance of underlying portfolio (assuming no tax/withdrawals) for each path.
+        return np.cumprod(1.0 + (self.basket.values * (self.paths[:,1:,:] / self.paths[:,:-1,:] - 1.0)).sum(axis=2), axis=1)
 
     def get_max_drawdowns(self):
-        return [risk.get_max_drawdown(path) for path in self.value]
+        return [risk.get_max_drawdown(path) for path in self.value if path[-1] > 0]
 
     def get_loss_probs(self, losses=[0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50]):
         loss_probs = pd.DataFrame()
