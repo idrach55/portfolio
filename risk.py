@@ -25,6 +25,9 @@ from bs4 import BeautifulSoup
 from io import StringIO
 from typing import Dict, List, Tuple
 
+# CONSTANTS
+DATA_DIR = 'data'
+
 
 def download_rental_data(key='All'):
     """
@@ -34,13 +37,13 @@ def download_rental_data(key='All'):
     """
     categories = ['medianAskingRent_{}'.format(key), 'rentalInventory_{}'.format(key)]
     for cat in categories:
-        if '{}.csv'.format(cat) in os.listdir('data'):
-            os.remove('data/{}.csv'.format(cat))
+        if '{}.csv'.format(cat) in os.listdir(DATA_DIR):
+            os.remove('{}/{}.csv'.format(DATA_DIR, cat))
 
         url = 'https://streeteasy-market-data-download.s3.amazonaws.com/rentals/{}/{}.zip'.format(key, cat)
         with open('data.zip','wb') as file:
             file.write(urlopen(url).read())
-        ZipFile('data.zip').extractall('data/')
+        ZipFile('data.zip').extractall(f'{DATA_DIR}/')
         os.remove('data.zip')
 
 
@@ -84,8 +87,8 @@ def get_etf_category(symbol: str) -> str:
     """
 
     cache = pd.DataFrame()
-    if 'etfs.csv' in os.listdir('data'):
-        cache = pd.read_csv('data/etfs.csv',index_col=0)
+    if 'etfs.csv' in os.listdir(DATA_DIR):
+        cache = pd.read_csv(f'{DATA_DIR}/etfs.csv',index_col=0)
         if symbol in cache.index:
             return cache.loc[symbol].category
 
@@ -94,7 +97,7 @@ def get_etf_category(symbol: str) -> str:
     soup = Soup(r.text, features='lxml')
     spans = soup.find_all('span', class_='stock-quote-data')
     category = spans[2].get_text().strip() if len(spans) >= 3 else 'none'
-    cache.append(pd.Series({'category': category}, name=symbol)).to_csv('data/etfs.csv')
+    cache.append(pd.Series({'category': category}, name=symbol)).to_csv(f'{DATA_DIR}/etfs.csv')
     return category
 
 
@@ -169,7 +172,7 @@ def get_treasury(match_idx = None, data_age_limit = 10) -> pd.DataFrame:
     """
 
     # Load cached data if available and within certain age (days).
-    existing_data = os.listdir('data/')
+    existing_data = os.listdir(f'{DATA_DIR}/')
     existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
 
     reload = True
@@ -177,15 +180,15 @@ def get_treasury(match_idx = None, data_age_limit = 10) -> pd.DataFrame:
         fname = existing_syms['treasury']
         data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
         if (datetime.today() - data_date).days <= data_age_limit:
-            treasury = pd.read_csv('data/{}'.format(fname),index_col=0)
+            treasury = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
             treasury.index = pd.to_datetime(treasury.index)
             reload = False
         else:
-            os.remove('data/{}'.format(fname))
+            os.remove('{}/{}'.format(DATA_DIR,fname))
     if reload:
         service = ql()
         treasury = service.get_yield_curve()/100
-        treasury.to_csv('data/treasury_{}.csv'.format(datetime.today().strftime('%d%b%y')))
+        treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
         treasury.index = pd.to_datetime(treasury.index)
     if match_idx is None:
         return treasury
@@ -212,7 +215,7 @@ def is_symbol_cached(symbol: str):
     returns -1, None if symbol not cached, otherwise data age, filename
     """
 
-    existing_data = os.listdir('data')
+    existing_data = os.listdir(DATA_DIR)
     existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
     if symbol in existing_syms.keys():
         fname = existing_syms[symbol]
@@ -252,14 +255,14 @@ def get_data(symbols: List[str], data_age_limit=10) -> Dict[str, pd.DataFrame]:
 
         # If data is found in data directory and within age limit.
         if data_age != -1 and data_age <= data_age_limit:
-            data_single = pd.read_csv('data/{}'.format(fname),index_col=0)
+            data_single = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
             data_single.index = pd.to_datetime(data_single.index)
             # Skip download and go to next symbol.
             data[symbol] = data_single
             continue
         # If data is found but too old.
         elif data_age > data_age_limit:
-            os.remove('data/{}'.format(fname))
+            os.remove('{}/{}'.format(DATA_DIR,fname))
 
         # If program flow gets here, data was either unavailable or too old.
         try:
@@ -271,7 +274,7 @@ def get_data(symbols: List[str], data_age_limit=10) -> Dict[str, pd.DataFrame]:
             # Drop the symbol and the user may re-run if desired (others will be cached then).
             print('error: failed to load {}'.format(symbol))
             continue
-        data_single.to_csv('data/{}_{}.csv'.format(symbol,datetime.today().strftime('%d%b%y')))
+        data_single.to_csv('{}/{}_{}.csv'.format(DATA_DIR,symbol,datetime.today().strftime('%d%b%y')))
         data_single.index = pd.to_datetime(data_single.index)
         data[symbol] = data_single
 
@@ -371,7 +374,7 @@ def is_earnings_cached(symbol: str):
     returns -1, None if earnings not cached, otherwise data age, filename
     """
 
-    existing_data = os.listdir('data/')
+    existing_data = os.listdir(f'{DATA_DIR}/')
     existing_data = [fname for fname in existing_data if 'earnings-' in fname]
     existing_syms = {fname[:fname.find('_')][9:]: fname for fname in existing_data}
     if symbol in existing_syms.keys():
@@ -394,19 +397,19 @@ def get_earnings(symbols: List[str], data_age_limit=30) -> Dict[str, pd.DataFram
         data_age, fname = is_earnings_cached(symbol)
         # If data is found in data directory and within age limit.
         if data_age != -1 and data_age <= data_age_limit:
-            earnings = pd.read_csv('data/{}'.format(fname),index_col=0)
+            earnings = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
             # Skip download and go to next symbol.
             earns[symbol] = earnings
             continue
         # If data is found but too old.
         elif data_age > data_age_limit:
-            os.remove('data/{}'.format(fname))
+            os.remove('{}/{}'.format(DATA_DIR,fname))
 
         # If program flow gets here, data was either unavailable or too old.
         try:
             earnings = pd.DataFrame(service.earnings(symbol)['quarterlyEarnings'])
             earnings = earnings[::-1]
-            earnings.to_csv('data/earnings-{}_{}.csv'.format(symbol, datetime.today().strftime('%d%b%y')))
+            earnings.to_csv('{}/earnings-{}_{}.csv'.format(DATA_DIR, symbol, datetime.today().strftime('%d%b%y')))
         except:
             # Likely from limit on 5 requests/minute.
             # Drop the symbol and the user may re-run if desired (others will be cached then).
