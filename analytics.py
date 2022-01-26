@@ -36,6 +36,12 @@ def garch_filter(ret: pd.Series, omega: float, alpha: float, beta: float):
     return sigma_2
 
 
+def garch_mle(params, ret: pd.Series):
+    sigma_2 = garch_filter(ret, *params)
+    # Return the negative as to minimize in optimization.
+    return -np.sum(-np.log(sigma_2) - ret**2/sigma_2)
+
+
 def get_lr_vol(fit, scale=100):
     return np.sqrt(fit.params['omega'] / (1.0 - fit.params['alpha[1]'] - fit.params['beta[1]']) * 252) / scale
 

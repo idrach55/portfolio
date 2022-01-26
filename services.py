@@ -70,7 +70,7 @@ class AlphaVantage:
         return r.json()
 
     def overview(self, symbol: str) -> pd.DataFrame:
-        url = self.root_url+'function=OVERVIEW&symbol={}&apikey={}'.format(symbol, symbol.api_key)
+        url = self.root_url+'function=OVERVIEW&symbol={}&apikey={}'.format(symbol, self.api_key)
         r = requests.get(url)
         return r.json()
 
