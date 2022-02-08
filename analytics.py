@@ -230,10 +230,9 @@ def get_factors(universe: str = 'style') -> pd.DataFrame:
 
     elif universe == 'sector':
         for sector, etf in components.items():
-            if sector == 'market':
+            if sector != 'market':
                 factors[sector] = returns[etf]
-            else:
-                factors[sector] = regress_factor(returns[etf], returns[['SPY']])
+                #factors[sector] = regress_factor(returns[etf], returns[['SPY']])
 
     elif universe == 'asset':
         for asset, etf in components.items():
@@ -282,7 +281,6 @@ def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd
         return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()
     res = minimize(err, [1.0/len(factors.columns)]*len(factors.columns), constraints=cons, bounds=[(0.0,1.0)]*len(factors.columns))
     weights = pd.Series(res['x'], index=factors.columns)
-    weights = weights[weights >= 0.01] / weights[weights >= 0.01].sum()
     rsq = r2_score(returns_s, (weights * factors_s).sum(axis=1))
     return rsq, weights
 
