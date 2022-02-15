@@ -162,7 +162,7 @@ def years_of_data(series) -> float:
     return (series.index[-1] - series.index[0]).days / 365
 
 
-def get_treasury(match_idx = None, data_age_limit = 10) -> pd.DataFrame:
+def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
     """
     Get treasury data from Quandl. Same method as for stocks -- will check for existing data
     downloaded within past 10 days and will refresh otherwise.
@@ -186,10 +186,14 @@ def get_treasury(match_idx = None, data_age_limit = 10) -> pd.DataFrame:
         else:
             os.remove('{}/{}'.format(DATA_DIR,fname))
     if reload:
-        service = ql()
-        treasury = service.get_yield_curve()/100
-        treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
+        # Quandl (now NASDAQ) yield curve is stale as of 2/4/22. Download direct from U.S. Treasury.
+        #service = ql()
+        #treasury = service.get_yield_curve()/100
+        url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/all?type=daily_treasury_yield_curve&field_tdr_date_value=all&data=yieldAll&page&_format=csv'
+        treasury = pd.read_csv(url, index_col=0)[::-1]/100.0
         treasury.index = pd.to_datetime(treasury.index)
+        treasury.columns = [col.replace(' Mo','m').replace(' Yr','y') for col in treasury.columns]
+        treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
     if match_idx is None:
         return treasury
     subset_idx = treasury.index[treasury.index.isin(match_idx)]
