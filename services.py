@@ -16,6 +16,9 @@ from bs4 import BeautifulSoup
 from io import StringIO
 from typing import Dict, List
 
+# CONSTANTS
+KEY_DIR = 'keys'
+
 
 class AlphaVantage:
     def __init__(self, api_key=None):
@@ -27,7 +30,7 @@ class AlphaVantage:
 
         self.api_key = api_key
         if self.api_key is None:
-            self.api_key = open('keys/alphavantage.keys','r').read().split('\n')[0]
+            self.api_key = open(f'{KEY_DIR}/alphavantage.keys','r').read().split('\n')[0]
         elif self.api_key[-5:] == '.keys':
             self.api_key = open(api_key,'r').read().split('\n')[0]
         self.root_url = 'https://www.alphavantage.co/query?'
@@ -85,7 +88,7 @@ class Quandl:
 
         self.token = token
         if self.token is None:
-            self.token = open('keys/quandl.keys','r').read().split('\n')[0]
+            self.token = open(f'{KEY_DIR}/quandl.keys','r').read().split('\n')[0]
         elif self.token[-5:] == '.keys':
             self.token = open(token,'r').read().split('\n')[0]
 
