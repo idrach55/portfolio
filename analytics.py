@@ -56,7 +56,7 @@ def garch_fit(ret: pd.Series):
 
 
 def garch_fit_multi(symbols):
-    # Normalize & winsorize returns, then fit GARCH(1,1) using GED.
+    # Normalize & winsorize returns, then fit GARCH(1,1).
     returns = {}
     fits    = {}
     epsilon = {}

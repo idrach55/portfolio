@@ -233,7 +233,7 @@ def load_with_stall(symbols: List[str], data_age_limit=10) -> Dict[str, pd.DataF
     counter = 0
     for symbol in tqdm.tqdm(symbols):
         is_cached = is_symbol_cached(symbol)[0] 
-        if is_cached != -1 and is_cached > data_age_limit:
+        if is_cached == -1 or is_cached > data_age_limit:
             get_data([symbol], data_age_limit=data_age_limit)
             counter += 1
         if counter == 5:
