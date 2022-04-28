@@ -189,7 +189,9 @@ def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
         # Quandl (now NASDAQ) yield curve is stale as of 2/4/22. Download direct from U.S. Treasury.
         #service = ql()
         #treasury = service.get_yield_curve()/100
-        url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/all?type=daily_treasury_yield_curve&field_tdr_date_value=all&data=yieldAll&page&_format=csv'
+        
+        # This is currently the wrong identifier (daily treasury real yield curve) but Treasury site has labelled incorrectly so far.
+        url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/all?type=daily_treasury_real_yield_curve&field_tdr_date_value=all&page&_format=csv'
         treasury = pd.read_csv(url, index_col=0)[::-1]/100.0
         treasury.index = pd.to_datetime(treasury.index)
         treasury.columns = [col.replace(' Mo','m').replace(' Yr','y') for col in treasury.columns]
