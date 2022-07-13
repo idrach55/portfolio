@@ -162,6 +162,38 @@ def years_of_data(series) -> float:
     return (series.index[-1] - series.index[0]).days / 365
 
 
+def get_treasury_data() -> pd.DataFrame:
+    url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=all'
+    data = []
+    dates = []
+    page_idx = 1
+    while True:
+        page_url = url+f'&page={page_idx}'
+        r = requests.get(page_url)
+        soup = Soup(r.text, 'lxml')
+        entries = soup.find_all('entry')
+        if len(entries) == 0:
+            break
+        for entry in entries:
+            dates.append(pd.to_datetime(entry.find('d:new_date').text))
+            value = {}
+            for month in [1,3,6]:
+                key = f'd:bc_{month}month'
+                if entry.find(key) is None:
+                    continue
+                value[f'{month}m'] = float(entry.find(key).text)/100.0
+            for year in [1,2,3,5,7,10,20,30]:
+                key = f'd:bc_{year}year'
+                if entry.find(key) is None:
+                    continue
+                value[f'{year}y'] = float(entry.find(key).text)/100.0
+            data.append(value)
+        page_idx += 1
+    df = pd.DataFrame(data)
+    df.index = dates
+    return df
+
+
 def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
     """
     Get treasury data from Quandl. Same method as for stocks -- will check for existing data
@@ -186,15 +218,7 @@ def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
         else:
             os.remove('{}/{}'.format(DATA_DIR,fname))
     if reload:
-        # Quandl (now NASDAQ) yield curve is stale as of 2/4/22. Download direct from U.S. Treasury.
-        #service = ql()
-        #treasury = service.get_yield_curve()/100
-        
-        # This is currently the wrong identifier (daily treasury real yield curve) but Treasury site has labelled incorrectly so far.
-        url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/all?type=daily_treasury_real_yield_curve&field_tdr_date_value=all&page&_format=csv'
-        treasury = pd.read_csv(url, index_col=0)[::-1]/100.0
-        treasury.index = pd.to_datetime(treasury.index)
-        treasury.columns = [col.replace(' Mo','m').replace(' Yr','y') for col in treasury.columns]
+        treasury = get_treasury_data()
         treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
     if match_idx is None:
         return treasury
