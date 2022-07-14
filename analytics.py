@@ -130,9 +130,9 @@ def process_jpm(fname: str, save=True):
     df.index = df.Ticker
     df = df.Value
     if len(muni) > 0:
-        df = df.append(pd.Series({'MUB': muni.Value.sum()}))
+        df = pd.concat([df, pd.Series({'MUB': muni.Value.sum()})])
     if len(pff) > 0:
-        df = df.append(pd.Series({'PFF': pff.Value.sum()}))
+        df = pd.concat([df, pd.Series({'PFF': pff.Value.sum()})])
     df.name = 'value'
     df.index.name = 'symbol'
 
@@ -241,7 +241,7 @@ def get_factors(universe: str = 'style') -> pd.DataFrame:
     # Take cumulative product of returns to generate price series
     factors  = (1.0 + factors).cumprod(axis=0)
     # Prepend 1.0 for each factor's initial price: just a niceity
-    return pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]).append(factors)
+    return pd.concat([pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]), factors])
 
 
 def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series, pd.DataFrame]:
@@ -436,8 +436,8 @@ class TaxablePortfolio:
         pmetrics = pd.Series({'pr': np.dot(self.basket, metrics.pr), 'tr': np.dot(self.basket, metrics.tr), 'vol': vol, 'sharpe': sharpe, 
                               'sortino': sortino, 'maxdraw': risk.get_max_drawdown(self.value), 'divs': np.dot(self.yields, self.basket),
                               'live': self.prices.index[0], 'divstd': divstd, 'divdraw': divdraw})
-        pmetrics.name = 'portfolio'
-        return metrics.append(pmetrics)[['pr','tr','vol','sharpe','sortino','maxdraw','divs','divstd','divdraw','live']], covar
+        metrics.loc['portfolio'] = pmetrics
+        return metrics[['pr','tr','vol','sharpe','sortino','maxdraw','divs','divstd','divdraw','live']], covar
 
 
 class MCPortfolio:

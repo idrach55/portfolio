@@ -486,8 +486,7 @@ def get_risk_return(prices: pd.DataFrame, ann_factor: int = 252) -> (pd.Series, 
     returns pd.Series for ann. total return, vol, downvol (indexed by symbol), and pd.DataFrame object for covar
     """
 
-    results = pd.DataFrame()
-
+    results = []
     # Do each symbol individually
     for symbol in prices.columns:
         px      = prices[symbol].dropna()
@@ -502,8 +501,8 @@ def get_risk_return(prices: pd.DataFrame, ann_factor: int = 252) -> (pd.Series, 
         series['sharpe']  = (series.tr - rf) / series.vol
         series['sortino'] = (series.tr - rf) / series.downvol
         series.name = symbol
-        results = results.append(series)
-
+        results.append(series)
+    results = pd.DataFrame(results)
     variance = pd.DataFrame(results.vol).dot(pd.DataFrame(results.vol).T)
     covar = variance*prices.dropna().pct_change().corr()
     return results, covar
