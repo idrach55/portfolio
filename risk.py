@@ -97,7 +97,7 @@ def get_etf_category(symbol: str) -> str:
     soup = Soup(r.text, features='lxml')
     spans = soup.find_all('span', class_='stock-quote-data')
     category = spans[2].get_text().strip() if len(spans) >= 3 else 'none'
-    cache.append(pd.Series({'category': category}, name=symbol)).to_csv(f'{DATA_DIR}/etfs.csv')
+    pd.concat([cache, pd.DataFrame({'category': [category]}, index=[symbol])], axis=0).to_csv(f'{DATA_DIR}/etfs.csv')
     return category
 
 
