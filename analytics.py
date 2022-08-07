@@ -281,6 +281,8 @@ def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd
         return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()
     res = minimize(err, [1.0/len(factors.columns)]*len(factors.columns), constraints=cons, bounds=[(0.0,1.0)]*len(factors.columns))
     weights = pd.Series(res['x'], index=factors.columns)
+    weights = weights.loc[weights > 0.0]
+    weights /= weights.sum()
     rsq = r2_score(returns_s, (weights * factors_s).sum(axis=1))
     return rsq, weights
 
