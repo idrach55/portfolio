@@ -172,7 +172,7 @@ def get_treasury_data() -> pd.DataFrame:
         r = requests.get(page_url)
         soup = Soup(r.text, 'lxml')
         entries = soup.find_all('entry')
-        if len(entries) == 0:
+        if len(entries) <= 1:
             break
         for entry in entries:
             dates.append(pd.to_datetime(entry.find('d:new_date').text))
