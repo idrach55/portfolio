@@ -560,7 +560,7 @@ def snapshot(symbols: List[str], from_date=None):
     metrics = 100.0 * get_metrics(prices, data)[0]
     metrics['sharpe']  /= 100.0
     metrics['sortino'] /= 100.0
-    return metrics.style.format('{:.1f}%').format({'sharpe': '{:.2f}', 'sortino': '{:.2f}'})
+    return metrics.style.format({'sharpe': '{:.2f}', 'sortino': '{:.2f}', 'tr': '{:.1f}%', 'vol': '{:.1f}%', 'maxdraw': '{:.1f}%', 'divs': '{:.1f}%', 'divstd': '{:.1f}%'})
 
 
 # Bond Math
