@@ -491,7 +491,7 @@ def get_risk_return(prices: pd.DataFrame, ann_factor: int = 252) -> (pd.Series, 
     for symbol in prices.columns:
         px      = prices[symbol].dropna()
         returns = px.pct_change()
-        rf      = get_risk_free(px.index)
+        rf      = 0.0 #get_risk_free(px.index)
         years   = years_of_data(px)
 
         series = pd.Series(dtype=np.float)

@@ -302,8 +302,8 @@ def decompose_multi(prices: pd.DataFrame, factors: pd.DataFrame) -> Tuple[pd.Ser
 """
 Hardcoded (unfortunately) asset classes for some mutual funds so the right tax treatment can be applied to distributions.
 """
-fund_categories = {'VWALX': 'National Munis', 'VWIUX': 'National Munis', 'VWITX': 'National Munis', 'VMMXX': 'MM Bond', 'SDSCX': 'Equity', 'JTISX': 'National Munis', 'TXRIX': 'National Munis', 
-                   'VWEAX': 'HY Bond', 'VFSUX':'Bond', 'MAYHX': 'National Munis', 'VIPSX': 'Inflation Bond', 'SAMHX': 'HY Bond', 'ARTKX': 'Equity', 'JMSIX': 'Bond', 'KGGAX': 'Equity', 'LLPFX': 'Equity', 
+fund_categories = {'VWALX': 'National Munis', 'VWIUX': 'National Munis', 'VWSUX': 'National Munis', 'JITIX': 'National Munis', 'VWITX': 'National Munis', 'VMMXX': 'MM Bond', 'SDSCX': 'Equity', 'JTISX': 'National Munis', 'TXRIX': 'National Munis', 
+                   'VWEAX': 'HY Bond', 'VFSUX':'Bond', 'MAYHX': 'National Munis', 'VIPSX': 'Inflation Bond', 'VAIPX': 'Inflation Bond', 'SAMHX': 'HY Bond', 'ARTKX': 'Equity', 'JMSIX': 'Bond', 'KGGAX': 'Equity', 'LLPFX': 'Equity', 
                    'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond', 'VFIDX': 'Bond', 'JHEQX': 'Equity', 'HLIEX': 'Equity'}
 default_brackets = {'fed':0.388, 'state':0.068, 'div':0.306}
 
@@ -461,7 +461,7 @@ class MCPortfolio:
         self.drifts = drifts if drifts is not None else 252.0 * log_r.mean()
         self.paths = garch_mc(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
 
-    def build(self, init_value, withdraw, fee=0.00):
+    def build(self, init_value, withdraw_fixed, withdraw_pct, fee=0.00):
         N = self.paths.shape[0]
         qtr_index   = np.arange(0, (self.paths.shape[1] - 1) // 63 + 1) * 63
         self.shares = np.zeros(shape=(N, qtr_index.shape[0], self.paths.shape[2])) + (self.basket.values * init_value)
@@ -470,16 +470,20 @@ class MCPortfolio:
         self.value  = np.zeros(shape=(N, qtr_index.shape[0])) + init_value
         self.income = np.zeros(shape=(N, qtr_index.shape[0]))
         self.resid  = np.zeros(shape=(N, qtr_index.shape[0]))
+        self.taken  = np.zeros(shape=(N, qtr_index.shape[0]))
 
-        if type(withdraw) == float:
-            withdraw = np.zeros(shape=(qtr_index.shape[0] // 4)) + withdraw
+        if type(withdraw_fixed) == float:
+            withdraw_fixed = np.zeros(shape=(qtr_index.shape[0] // 4)) + withdraw_fixed
+        if type(withdraw_pct) == float:
+            withdraw_pct = np.zeros(shape=(qtr_index.shape[0] // 4)) + withdraw_pct
 
         # For each quarter, qtr_index[qtr] = the daily index in paths for that quarter.
         for qtr in range(1, len(qtr_index)):
             # Grow portfolio by performance.
             self.value[:,qtr]  = np.sum(self.shares[:,qtr-1] * self.paths[:,qtr_index[qtr]], axis=1)
             self.income[:,qtr] = np.sum((self.basket * self.yields/4)*(1.0 - self.taxes))*self.value[:,qtr-1]
-            self.resid[:,qtr]  = self.income[:,qtr] - withdraw[(qtr-1)//4]/4 - self.value[:,qtr-1]*fee/4
+            self.taken[:,qtr]  = withdraw_fixed[(qtr-1)//4]/4 + self.value[:,qtr-1]*withdraw_pct[(qtr-1)//4]/4
+            self.resid[:,qtr]  = self.income[:,qtr] -  self.value[:,qtr-1]*fee/4 - self.taken[:,qtr]
             self.value[:,qtr] += self.resid[:,qtr]
             self.shares[:,qtr] = np.outer(self.value[:,qtr], self.basket.values) / self.paths[:,qtr_index[qtr]]
 
