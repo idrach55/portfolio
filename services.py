@@ -5,29 +5,21 @@ Date: 8/16/2021
 Simple API clients for various financial data providers -- mostly AlphaVantage. 
 """
 
-import pandas as pd
-import numpy as np
-import requests
-import quandl
+from typing import Dict, List, Optional
 
-from urllib.request import urlopen
-from zipfile import ZipFile
-from bs4 import BeautifulSoup
-from io import StringIO
-from typing import Dict, List
+import numpy as np
+import pandas as pd
+import quandl
+import requests
 
 # CONSTANTS
 KEY_DIR = 'keys'
 
-
 class AlphaVantage:
-    def __init__(self, api_key=None):
+    def __init__(self, api_key: Optional[str] = None):
         """
         Create the API service object.
-
-        api_key: string, either actual key or name of keyfile, or None for default
         """
-
         self.api_key = api_key
         if self.api_key is None:
             self.api_key = open(f'{KEY_DIR}/alphavantage.keys','r').read().split('\n')[0]
@@ -35,18 +27,12 @@ class AlphaVantage:
             self.api_key = open(api_key,'r').read().split('\n')[0]
         self.root_url = 'https://www.alphavantage.co/query?'
 
-    def chart(self, symbol: str, adjusted=True) -> pd.DataFrame:
+    def chart(self, symbol: str, adjusted: bool = True) -> pd.DataFrame:
         """
         Return historical data (OHLC, dividend, split, etc.)
-
-        symbol: symbol to retrieve
-        adjusted: (optional) if True, data includes closes adjusted for divs/splits + div/split data
-        returns dataframe
         """
-
-        function = 'TIME_SERIES_DAILY'
-        if adjusted:
-            function += '_ADJUSTED'
+        suffix = '_ADJUSTED' if adjusted else ''
+        function = f'TIME_SERIES_DAILY{suffix}'
         url = self.root_url+'function={}&symbol={}&outputsize=full&apikey={}'.format(function, symbol, self.api_key)
         #print(url)
         r = requests.get(url)
@@ -79,20 +65,14 @@ class AlphaVantage:
 
 
 class Quandl:
-    def __init__(self, token=None):
-        """
-        Create the API service object.
-
-        token: string for token or filename or None for default
-        """
-
+    def __init__(self, token: Optional[str] = None):
         self.token = token
         if self.token is None:
             self.token = open(f'{KEY_DIR}/quandl.keys','r').read().split('\n')[0]
         elif self.token[-5:] == '.keys':
             self.token = open(token,'r').read().split('\n')[0]
 
-    def get_yield_curve(self):
+    def get_yield_curve(self) -> pd.DataFrame:
         def rename_col(col):
             if 'MO' in col:
                 return col[:col.find(' ')]+'m'
@@ -124,22 +104,18 @@ class Fred:
         df.index = pd.to_datetime(df.index)
         return df[symbol]
 
-
-"""
-Unused services: Polygon, IEX
-"""
+# Unused services: Polygon, IEX
 class Polygon:
-    def __init__(self, api_key=None):
+    def __init__(self, api_key: Optional[str] = None):
         # Process api key as either given or filename
         self.api_key = api_key
         if self.api_key[-5:] == '.keys':
             self.api_key = open(api_key,'r').read().split('\n')[0]
         self.root_url = 'https://api.polygon.io/v2/'
 
-    def aggs(self, ticker, from_date, to_date, timespan='day', unadjusted=False):
+    def aggs(self, ticker: str, from_date: str, to_date: str, timespan: str= 'day', unadjusted: bool = False) -> pd.DataFrame:
         supported_spans = ['minute','hour','day','week','month','quarter','year']
-        if timespan not in supported_spans:
-            raise Exception('timespan {} not supported'.format(timespan))
+        assert timespan in supported_spans, f'timespan {timespan} not supported'
 
         # Construct url for this request and GET it
         url = self.root_url+'aggs/ticker/{}/range/1/{}/{}/{}?unadjusted={}&sort=asc&apiKey={}'
@@ -151,13 +127,11 @@ class Polygon:
         data.index = pd.to_datetime(data.index.date)
         return data.drop('t',axis=1)
 
-    def dividends(self, ticker, adjusted=True):
+    def dividends(self, ticker: str, adjusted: bool = True) -> pd.DataFrame:
         url = self.root_url+'reference/dividends/{}?apiKey={}'
         r = requests.get(url.format(ticker,self.api_key))
 
         data = pd.DataFrame(r.json()['results'])
-        #for column in ['exDate','paymentDate','recordDate','declaredDate']:
-        #    data[column] = pd.to_datetime(data[column])
         data.exDate = pd.to_datetime(data.exDate)
         if not adjusted:
             return data
@@ -172,33 +146,23 @@ class Polygon:
         data_adj.amount *= factor
         return data_adj
 
-    def splits(self, ticker):
+    def splits(self, ticker: str) -> pd.DataFrame:
         url = self.root_url+'reference/splits/{}?apiKey={}'
         r = requests.get(url.format(ticker,self.api_key))
-
         data = pd.DataFrame(r.json()['results'])
-        #for column in ['exDate','paymentDate','declaredDate']:
-        #    data[column] = pd.to_datetime(data[column])
         data.exDate = pd.to_datetime(data.exDate)
         return data
 
-
 class IEX:
-    def __init__(self, token=None):
-        """
-        Create the API service object.
-
-        token: string, either actual key or name of keyfile
-        """
+    def __init__(self, token: Optional[str] = None):
         self.token = token
         if self.token[-5:] == '.keys':
             self.token = open(token,'r').read().split('\n')[0]
         self.root_url = 'https://cloud.iexapis.com/stable/'
 
-    def chart(self, symbol: str, range: str, close_only=True) -> pd.DataFrame:
+    def chart(self, symbol: str, range: str, close_only: bool = True) -> pd.DataFrame:
         url = self.root_url+'stock/{}/chart/{}?chartCloseOnly={}&token={}'
         r = requests.get(url.format(symbol,range,close_only,self.token))
-
         data = pd.DataFrame(r.json())
         data.index = pd.to_datetime(data.date)
         data = data.drop('date',axis=1)
@@ -206,23 +170,15 @@ class IEX:
 
     # Return adjusted closes for several symbols over a range
     def charts(self, symbols: List[str], range: str) -> pd.DataFrame:
-        """
-        Adjusted closes for several symbols over a time range.
-
-        symbols: list of symbols
-        range: time range as string, ex: '5y', '3m'
-        returns dataframe of adjusted closes
-        """
         data = pd.DataFrame()
         for symbol in symbols:
             price_data = self.chart(symbol, range, close_only=True)
             data[symbol] = price_data.close
         return data
 
-    def dividends(self, symbol, range):
+    def dividends(self, symbol: str, range: str) -> pd.DataFrame:
         url = self.root_url+'stock/{}/dividends/{}?token={}'
         r = requests.get(url.format(symbol,range,self.token))
-
         data = pd.DataFrame(r.json())
         for column in ['exDate','paymentDate','recordDate','declaredDate']:
             data[column] = pd.to_datetime(data[column])

@@ -5,31 +5,34 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
-from . import risk, analytics
-
+import time
 from typing import Dict, List, Tuple
 
-import pandas as pd
 import numpy as np
-import time
-from arch.univariate import ZeroMean, GARCH, Normal
+import pandas as pd
+from arch.univariate import GARCH, Normal, ZeroMean
 
-def process_returns(series: pd.Series, window=5):
+from analytics import FactorUniverse, TaxablePortfolio, TaxBrackets
+from risk import Utils
+
+from . import analytics, risk
+
+
+def process_returns(series: pd.Series, window: int = 5) -> pd.Series:
     # Take log-returns along series, normalize and winsorize.
     ret = np.log(series/series.shift(1))[1:]
     ret = ret - ret.mean()
     ret = ret[(ret > -window*ret.std()) & (ret < window*ret.std())]
     return ret
 
-def garch_filter(ret: pd.Series, omega: float, alpha: float, beta: float):
+def garch_filter(ret: pd.Series, omega: float, alpha: float, beta: float) -> pd.Series:
     sigma_2 = np.zeros(len(ret))
     sigma_2[0] = omega / (1.0 - alpha - beta)
     for t in range(1, len(ret)):
         sigma_2[t] = omega + alpha * ret[t-1]**2 + beta * sigma_2[t-1]
     return sigma_2
 
-
-def garch_mle(params, ret: pd.Series):
+def garch_mle(params: Tuple[float, float, float], ret: pd.Series) -> float:
     sigma_2 = garch_filter(ret, *params)
     # Return the negative as to minimize in optimization.
     return -np.sum(-np.log(sigma_2) - ret**2/sigma_2)
@@ -110,16 +113,16 @@ def do_basket(basket, cutoff=0.01):
 
 def getReplication(basket: pd.Series, ltcma: pd.DataFrame):
     basket_ = do_basket(basket)
-    folio = analytics.TaxablePortfolio(basket_)
-    factors = analytics.get_factors('asset')
+    folio = TaxablePortfolio(basket_)
+    factors = FactorUniverse.ASSET.getFactors()
     rsq, weights = analytics.decompose_const(folio.value, factors)
     return pd.Series(weights.values, index=ltcma.loc[weights.index].etf)
 
 class MCPortfolio:
-    def __init__(self, basket: pd.Series, brackets: Dict[str,float]):
+    def __init__(self, basket: pd.Series, brackets: TaxBrackets):
         self.basket = basket
         self.brackets = brackets
-        self.taxes = analytics.taxes_by_asset(basket.index, brackets)
+        self.taxes = brackets.getTaxesByAsset(basket.index)
         self.data = risk.get_data(basket.index)
         self.prices = risk.get_prices(self.data, field='close')
         self.yields = risk.get_indic_yields(self.data, last=True)
@@ -180,4 +183,4 @@ class MCPortfolio:
         return np.cumprod(1.0 + (self.basket.values * (self.paths[:,1:,:] / self.paths[:,:-1,:] - 1.0)).sum(axis=2), axis=1)
 
     def get_max_drawdowns(self):
-        return [risk.get_max_drawdown(path) for path in self.value if path[-1] > 0]
+        return [Utils.getMaxDrawdown(path) for path in self.value if path[-1] > 0]

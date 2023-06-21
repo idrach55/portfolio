@@ -4,19 +4,24 @@ Date: 8/16/2021
 
 Factor decomposition and taxable portfolio analysis.
 """
+from __future__ import annotations
 
-from . import risk
-
-import pandas as pd
-import numpy as np
 import time
-import scipy.stats as stat
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+import pandas as pd
+import scipy.optimize as opt
 from sklearn.linear_model import LinearRegression as OLS
 from sklearn.metrics import r2_score
-from typing import Dict, List, Tuple
 
-def process_jpm(fname: str, save=True):
+from . import risk
+from .risk import FundCategory, Utils
+
+
+def process_jpm(fname: str, save: bool = True) -> Optional[pd.DataFrame]:
     # Load file (export csv from JP Morgan online.)
     df = pd.read_csv('jpm/{}'.format(fname))
     
@@ -64,7 +69,7 @@ def process_jpm(fname: str, save=True):
         return df
 
 
-def agg_folio_csv(folios: List[str], saveas: str):
+def agg_folio_csv(folios: List[str], saveas: str) -> None:
     folios = ['portfolios/{}'.format(folio) for folio in folios]
     saveas = 'portfolios/{}'.format(saveas)
     dfs = [pd.read_csv(folio, index_col=0) for folio in folios]
@@ -77,56 +82,15 @@ def agg_folio_csv(folios: List[str], saveas: str):
         total += df.reindex(symbols).fillna(0.0)
     total.to_csv(saveas)
 
+class FactorUniverse(Enum):
+    STYLE = 1
+    SECTOR = 2
+    ASSET = 3
 
-def regress_factor(A: pd.Series, B: pd.DataFrame) -> pd.Series:
-    """
-    Regress s.t. A = beta x B + epsilon
-    """
-    fitted = OLS().fit(B, A)
-    return A - (fitted.coef_ * B).sum(axis=1)
-
-
-def get_components(universe: str = 'style') -> List[str]:
-    """
-    Read list of ETFs for given universe of factors.
-    """
-    factors = pd.read_csv('factors.csv',index_col=1)
-    return factors.loc[factors.universe == universe].etf
-
-
-def get_factors(universe: str = 'style') -> pd.DataFrame:
-    """
-    Generate factors from different universes:
-    exposure = style/size/geo factors + bonds
-    sector   = SPDR sectors
-
-    returns pd.DataFrame of price per factor
-    """
-
-    # Treasury bonds: SHY = 1-3y, IEI = 3-7y, IEF = 7-10y, TLH = 10-20y, TLT = 20y+
-    # Components from which we'll build our factors
-    components = get_components(universe)
-
-    # Get data and build prices dataframe
-    loaded = 0
-    for comp in components:
-        if risk.is_symbol_cached(comp)[0] == -1 or risk.is_symbol_cached(comp)[0] > 10:
-            risk.get_data([comp])
-            loaded += 1
-        if loaded == 5:
-            print('hit 5 request limit, waiting 1 min...')
-            loaded = 0
-            time.sleep(60.0)
-    data    = risk.get_data(list(components.values))
-    prices  = risk.get_prices(data).dropna()
-    returns = prices.pct_change().iloc[1:]
-
-    # Build factors dataframe by transforming components.
-    # todo: make factors better / add more
-    factors = pd.DataFrame()
-
-    if universe == 'style':
-        # Core macro factors
+    @staticmethod
+    def makeFactorsStyle(returns: pd.DataFrame) -> pd.DataFrame:
+        # Treasury bonds: SHY = 1-3y, IEI = 3-7y, IEF = 7-10y, TLH = 10-20y, TLT = 20y+
+        factors = pd.DataFrame()
         factors['equities'] = returns.VT
         factors['rates'] = returns.IEI
         factors['credit'] = returns.HYG - returns.IEI
@@ -149,22 +113,62 @@ def get_factors(universe: str = 'style') -> pd.DataFrame:
         factors['momentum'] = returns.MTUM - returns.VTI
         factors['quality']  = returns.QUAL - returns.VTI
         factors['value']    = returns.IWD - returns.IWF
-
-    elif universe == 'sector':
+        return factors
+    
+    @staticmethod
+    def makeFactorsSector(returns: pd.DataFrame, components: pd.Series) -> pd.DataFrame:
+        factors = pd.DataFrame()
         for sector, etf in components.items():
             if sector != 'market':
                 factors[sector] = returns[etf]
                 #factors[sector] = regress_factor(returns[etf], returns[['SPY']])
-
-    elif universe == 'asset':
+        return factors
+    
+    @staticmethod
+    def makeFactorsAsset(returns: pd.DataFrame, components: pd.Series) -> pd.DataFrame:
+        factors = pd.DataFrame()
         for asset, etf in components.items():
             factors[asset] = returns[etf]
+        return factors
 
-    # Take cumulative product of returns to generate price series
-    factors  = (1.0 + factors).cumprod(axis=0)
-    # Prepend 1.0 for each factor's initial price: just a niceity
-    return pd.concat([pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]), factors])
+    def getComponents(self) -> pd.Series:
+        factors = pd.read_csv('factors.csv',index_col=1)
+        return factors.loc[factors.universe == self.name].etf
+    
+    def getFactors(self) -> pd.DataFrame:
+        """
+        Generate factors from different universes:
+        exposure = style/size/geo factors + bonds
+        sector   = SPDR sectors
+        """
+        # Components from which we'll build our factors
+        components = self.getComponents()
 
+        # Get data and build prices dataframe
+        data    = risk.load_with_stall(list(components.values))
+        prices  = risk.get_prices(data).dropna()
+        returns = prices.pct_change().iloc[1:]
+
+        # Build factors dataframe by transforming components.
+        # todo: make factors better / add more
+        if self == FactorUniverse.STYLE:
+            # Core macro factors
+            factors = FactorUniverse.makeFactorsStyle(returns)
+        elif self == FactorUniverse.SECTOR:
+            factors = FactorUniverse.makeFactorsSector(returns, components)
+        elif self == FactorUniverse.ASSET:
+            factors = FactorUniverse.makeFactorsAsset(returns, components)
+        # Take cumulative product of returns to generate price series
+        factors  = (1.0 + factors).cumprod(axis=0)
+        # Prepend 1.0 for each factor's initial price: just a niceity
+        return pd.concat([pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]), factors])
+    
+def regress_factor(A: pd.Series, B: pd.DataFrame) -> pd.Series:
+    """
+    Regress s.t. A = beta x B + epsilon
+    """
+    fitted = OLS().fit(B, A)
+    return A - (fitted.coef_ * B).sum(axis=1)
 
 def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series, pd.DataFrame]:
     """
@@ -201,7 +205,7 @@ def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd
     cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
     def err(w):
         return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()
-    res = minimize(err, [1.0/len(factors.columns)]*len(factors.columns), constraints=cons, bounds=[(0.0,1.0)]*len(factors.columns))
+    res = opt.minimize(err, [1.0/len(factors.columns)]*len(factors.columns), constraints=cons, bounds=[(0.0,1.0)]*len(factors.columns))
     weights = pd.Series(res['x'], index=factors.columns)
     # weights = weights.loc[weights > 0.0]
     weights[weights.abs() < 0.01] = 0.0
@@ -221,45 +225,53 @@ def decompose_multi(prices: pd.DataFrame, factors: pd.DataFrame) -> Tuple[pd.Ser
         rsq[symbol], pred[symbol], df[symbol] = decompose(prices[symbol], factors)
     return rsq, pred, df
 
+@dataclass
+class TaxBrackets:
+    federal_income: float
+    state: float
+    federal_lt: float
 
-"""
-Hardcoded (unfortunately) asset classes for some mutual funds so the right tax treatment can be applied to distributions.
-"""
-fund_categories = {'VWALX': 'National Munis', 'VWIUX': 'National Munis', 'VWSUX': 'National Munis', 'JITIX': 'National Munis', 'VWITX': 'National Munis', 'VMMXX': 'MM Bond', 'SDSCX': 'Equity', 'JTISX': 'National Munis', 'TXRIX': 'National Munis', 
-                   'VWEAX': 'HY Bond', 'VFSUX':'Bond', 'MAYHX': 'National Munis', 'VIPSX': 'Inflation Bond', 'VAIPX': 'Inflation Bond', 'SAMHX': 'HY Bond', 'ARTKX': 'Equity', 'JMSIX': 'Bond', 'KGGAX': 'Equity', 'LLPFX': 'Equity', 
-                   'MPEMX': 'Equity', 'OAKEX': 'Equity', 'VWNAX': 'Equity', 'VMNVX': 'Equity', 'JPHSX': 'Bond', 'CSHIX': 'Bond', 'VFIDX': 'Bond', 'JHEQX': 'Equity', 'HLIEX': 'Equity'}
-default_brackets = {'fed':0.388, 'state':0.068, 'div':0.306}
+    @staticmethod
+    def default() -> TaxBrackets:
+        return TaxBrackets(0.388, 0.068, 0.238)
 
-def taxes_by_asset(assets: List[str], brackets: Dict[str, float]):
-    taxes = pd.Series({symbol: brackets['div'] for symbol in assets})
-    for symbol in assets:
-        # Assume mutual fund if symbol > 4 chars.
-        category = risk.get_etf_category(symbol) if len(symbol) <= 4 or '-' in symbol else fund_categories[symbol]
-        if category == 'New York Munis' or symbol in ['BNY','ENX']:
-            taxes[symbol] = 0.0
-        elif 'Munis' in category or symbol in ['JMST']:
-            taxes[symbol] = brackets['state']
-        elif 'Bond' in category and 'Preferred Stock' not in category:
-            taxes[symbol] = brackets['fed'] + brackets['state']
-    return taxes
-
+    def getLTCapGains(self) -> float:
+        return self.federal_lt + self.state
+    
+    def getIncome(self) -> float:
+        return self.federal_income + self.state
+    
+    def getTaxesByAsset(self, assets: List[str]) -> pd.Series:
+        taxes = pd.Series({symbol: self.getLTCapGains() for symbol in assets})
+        for symbol in assets:
+            # Assume mutual fund if symbol > 4 chars.
+            category = FundCategory.createFromSymbol(symbol)
+            if category == FundCategory.MUNI:
+                taxes[symbol] = self.state
+            elif category.getIsTaxableBond():
+                taxes[symbol] = self.getIncome()
+        return taxes
 
 class TaxablePortfolio:
     """
     To analyze performance/income of taxable account.
     Assume investor is taking out all dividends/interest in a year.
     """
-
-    def __init__(self, basket: pd.Series, brackets: Dict[str,float] = default_brackets, from_date=None, reinvest=0.0, categorize=True):
+    def __init__(self, 
+                 basket: pd.Series, 
+                 brackets: Optional[TaxBrackets] = None, 
+                 from_date: Optional[str] = None, 
+                 reinvest: float = 0.0, 
+                 categorize: bool = True):
         self.basket   = basket
         self.reinvest = reinvest
-        self.brackets = brackets
+        self.brackets = brackets if brackets else TaxBrackets.default()
 
         # First, assume all income taxed as qualified dividends.
-        self.taxes = pd.Series({symbol: brackets['div'] for symbol in basket.index})
+        self.taxes = pd.Series({symbol: brackets.getLTCapGains() for symbol in basket.index})
         # If requested, lookup each security on ETFDB to categorize as bonds/municipals.
         if categorize:
-            self.taxes = taxes_by_asset(basket.index, brackets)
+            self.taxes = brackets.getTaxesByAsset(basket.index)
 
         self.data   = risk.get_data(basket.index)
 
@@ -344,7 +356,7 @@ class TaxablePortfolio:
         live_since = pd.Series({symbol: self.prices_pr[symbol].dropna().index[0] for symbol in self.prices.columns})
 
         metrics = results_tr.copy()
-        metrics = metrics.assign(pr=results_pr.tr, maxdraw=[risk.get_max_drawdown(prices_pr_[ticker]) for ticker in metrics.index])
+        metrics = metrics.assign(pr=results_pr.tr, maxdraw=[Utils.getMaxDrawdown(prices_pr_[ticker]) for ticker in metrics.index])
         metrics = metrics.assign(divs=self.yields, divstd=divstd, divdraw=divdraw, live=live_since)
 
         returns = self.value.pct_change()[1:]
@@ -355,11 +367,11 @@ class TaxablePortfolio:
         # Requote PR/TR using weights & full history per security, rather than only full portfolio's history.
         sharpe   = (np.dot(self.basket, metrics.tr) - rf)/vol
         sortino  = (np.dot(self.basket, metrics.tr) - rf)/dnvol
-        ann_divs = risk.agg_to_period(self.total_inco, freq='A')
+        ann_divs = Utils.aggregateToPeriod(self.total_inco, freq='A')
         divstd   = ann_divs.std() / ann_divs.mean()
-        divdraw  = risk.get_max_drawdown(ann_divs)
+        divdraw  = Utils.getMaxDrawdown(ann_divs)
         pmetrics = pd.Series({'pr': np.dot(self.basket, metrics.pr), 'tr': np.dot(self.basket, metrics.tr), 'vol': vol, 'sharpe': sharpe, 
-                              'sortino': sortino, 'maxdraw': risk.get_max_drawdown(self.value), 'divs': np.dot(self.yields, self.basket),
+                              'sortino': sortino, 'maxdraw': Utils.getMaxDrawdown(self.value), 'divs': np.dot(self.yields, self.basket),
                               'live': self.prices.index[0], 'divstd': divstd, 'divdraw': divdraw})
         metrics.loc['portfolio'] = pmetrics
         return metrics[['pr','tr','vol','sharpe','sortino','maxdraw','divs','divstd','divdraw','live']], covar
