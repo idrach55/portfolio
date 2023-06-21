@@ -12,10 +12,11 @@ import numpy as np
 import pandas as pd
 from arch.univariate import GARCH, Normal, ZeroMean
 
-from analytics import FactorUniverse, TaxablePortfolio, TaxBrackets
+from analytics import TaxablePortfolio, TaxBrackets
+from factors import FactorUniverse, decompose_const
 from risk import Utils
 
-from . import analytics, risk
+from . import risk
 
 
 def process_returns(series: pd.Series, window: int = 5) -> pd.Series:
@@ -115,7 +116,7 @@ def getReplication(basket: pd.Series, ltcma: pd.DataFrame):
     basket_ = do_basket(basket)
     folio = TaxablePortfolio(basket_)
     factors = FactorUniverse.ASSET.getFactors()
-    rsq, weights = analytics.decompose_const(folio.value, factors)
+    rsq, weights = decompose_const(folio.value, factors)
     return pd.Series(weights.values, index=ltcma.loc[weights.index].etf)
 
 class MCPortfolio:
