@@ -15,7 +15,7 @@ import scipy.optimize as opt
 from sklearn.linear_model import LinearRegression as OLS
 from sklearn.metrics import r2_score
 
-from . import risk
+from .risk import Utils, load_with_stall
 
 
 class FactorUniverse(Enum):
@@ -91,8 +91,8 @@ class FactorUniverse(Enum):
         components = self.getComponents()
 
         # Get data and build prices dataframe
-        data    = risk.load_with_stall(list(components.values))
-        prices  = risk.get_prices(data).dropna()
+        data    = load_with_stall(list(components.values))
+        prices  = Utils.getPrices(data).dropna()
         returns = prices.pct_change().iloc[1:]
 
         # Build factors dataframe by transforming components.
@@ -130,7 +130,7 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
 
-    returns_s, factors_s = risk.match_indices(returns, factors)
+    returns_s, factors_s = Utils.matchIndices(returns, factors)
 
     fitted = OLS().fit(factors_s, returns_s)
     r_squared = fitted.score(factors_s, returns_s)
@@ -149,7 +149,7 @@ def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
 
-    returns_s, factors_s = risk.match_indices(returns, factors)
+    returns_s, factors_s = Utils.matchIndices(returns, factors)
     cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
     def err(w):
         return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()

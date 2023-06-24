@@ -15,6 +15,7 @@ import requests
 # CONSTANTS
 KEY_DIR = 'keys'
 
+
 class AlphaVantage:
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -88,6 +89,7 @@ class Quandl:
             data[factor] = quandl.get('NASDAQOMX/{}'.format(factor), authtoken=self.token)['Index Value']
         return data
 
+
 class Fred:
     def __init__(self):
         self.url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id={}'
@@ -103,6 +105,7 @@ class Fred:
         df = pd.read_csv(self.url.format(symbol),index_col=0)
         df.index = pd.to_datetime(df.index)
         return df[symbol]
+
 
 # Unused services: Polygon, IEX
 class Polygon:
@@ -152,6 +155,7 @@ class Polygon:
         data = pd.DataFrame(r.json()['results'])
         data.exDate = pd.to_datetime(data.exDate)
         return data
+
 
 class IEX:
     def __init__(self, token: Optional[str] = None):

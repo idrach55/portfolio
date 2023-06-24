@@ -5,87 +5,87 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
-import time
 from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from arch.univariate import GARCH, Normal, ZeroMean
-
 from analytics import TaxablePortfolio, TaxBrackets
+from arch.univariate import GARCH, Normal, ZeroMean
 from factors import FactorUniverse, decompose_const
-from risk import Utils
-
-from . import risk
+from risk import Utils, get_data, load_with_stall
 
 
-def process_returns(series: pd.Series, window: int = 5) -> pd.Series:
-    # Take log-returns along series, normalize and winsorize.
-    ret = np.log(series/series.shift(1))[1:]
-    ret = ret - ret.mean()
-    ret = ret[(ret > -window*ret.std()) & (ret < window*ret.std())]
-    return ret
+class Garch:
+    @staticmethod
+    def process(series: pd.Series, window: int = 5) -> pd.Series:
+        # Take log-returns along series, normalize and winsorize.
+        ret = np.log(series/series.shift(1))[1:]
+        ret = ret - ret.mean()
+        ret = ret[(ret > -window*ret.std()) & (ret < window*ret.std())]
+        return ret
 
-def garch_filter(ret: pd.Series, omega: float, alpha: float, beta: float) -> pd.Series:
-    sigma_2 = np.zeros(len(ret))
-    sigma_2[0] = omega / (1.0 - alpha - beta)
-    for t in range(1, len(ret)):
-        sigma_2[t] = omega + alpha * ret[t-1]**2 + beta * sigma_2[t-1]
-    return sigma_2
+    @staticmethod
+    def filter(ret: pd.Series, omega: float, alpha: float, beta: float) -> pd.Series:
+        sigma_2 = np.zeros(len(ret))
+        sigma_2[0] = omega / (1.0 - alpha - beta)
+        for t in range(1, len(ret)):
+            sigma_2[t] = omega + alpha * ret[t-1]**2 + beta * sigma_2[t-1]
+        return sigma_2
 
-def garch_mle(params: Tuple[float, float, float], ret: pd.Series) -> float:
-    sigma_2 = garch_filter(ret, *params)
-    # Return the negative as to minimize in optimization.
-    return -np.sum(-np.log(sigma_2) - ret**2/sigma_2)
+    @staticmethod
+    def mle(params: Tuple[float, float, float], ret: pd.Series) -> float:
+        sigma_2 = Garch.filter(ret, *params)
+        # Return the negative as to minimize in optimization.
+        return -np.sum(-np.log(sigma_2) - ret**2/sigma_2)
 
-def get_lr_vol(fit, scale=100):
-    return np.sqrt(fit.params['omega'] / (1.0 - fit.params['alpha[1]'] - fit.params['beta[1]']) * 252) / scale
+    @staticmethod
+    def getLongRunVol(fit, scale=100):
+        return np.sqrt(fit.params['omega'] / (1.0 - fit.params['alpha[1]'] - fit.params['beta[1]']) * 252) / scale
 
-def garch_fit(ret: pd.Series):
-    # For numerical stability, multiply returns by 100x. 
-    # omega scales quadratically, other params are constant
-    am = ZeroMean(100 * ret, rescale=False)
-    am.volatility = GARCH(p=1, q=1)
-    am.distribution = Normal() # GeneralizedError()
-    return am.fit(disp='off')
+    def fit(ret: pd.Series):
+        # For numerical stability, multiply returns by 100x. 
+        # omega scales quadratically, other params are constant
+        am = ZeroMean(100 * ret, rescale=False)
+        am.volatility = GARCH(p=1, q=1)
+        am.distribution = Normal() # GeneralizedError()
+        return am.fit(disp='off')
 
-def garch_fit_multi(symbols):
-    # Normalize & winsorize returns, then fit GARCH(1,1).
-    returns = {}
-    fits    = {}
-    epsilon = {}
-    for symbol in symbols:
-        prices = risk.get_prices(risk.get_data([symbol]))
-        returns[symbol] = process_returns(prices[symbol])
-        fits[symbol] = garch_fit(returns[symbol])
-        epsilon[symbol] = 100.0 * returns[symbol] / fits[symbol].conditional_volatility
+    def fitMulti(symbols):
+        # Normalize & winsorize returns, then fit GARCH(1,1).
+        returns = {}
+        fits    = {}
+        epsilon = {}
+        for symbol in symbols:
+            prices = Utils.getPrices(get_data([symbol]))
+            returns[symbol] = Garch.process(prices[symbol])
+            fits[symbol] = Garch.fit(returns[symbol])
+            epsilon[symbol] = 100.0 * returns[symbol] / fits[symbol].conditional_volatility
 
-    corr = np.zeros(shape=(len(symbols), len(symbols)))
-    shared_idx = pd.DataFrame(returns).dropna().index
-    for idx_i in range(len(symbols)):
-        for idx_j in range(len(symbols)):
-            corr[idx_i][idx_j] = epsilon[symbols[idx_i]][shared_idx].corr(epsilon[symbols[idx_j]][shared_idx])
+        corr = np.zeros(shape=(len(symbols), len(symbols)))
+        shared_idx = pd.DataFrame(returns).dropna().index
+        for idx_i in range(len(symbols)):
+            for idx_j in range(len(symbols)):
+                corr[idx_i][idx_j] = epsilon[symbols[idx_i]][shared_idx].corr(epsilon[symbols[idx_j]][shared_idx])
 
-    params = pd.DataFrame()
-    params['omega'] = [fit.params.omega for fit in fits.values()]
-    params['alpha'] = [fit.params['alpha[1]'] for fit in fits.values()]
-    params['beta']  = [fit.params['beta[1]'] for fit in fits.values()]
-    params.index = symbols
+        params = pd.DataFrame()
+        params['omega'] = [fit.params.omega for fit in fits.values()]
+        params['alpha'] = [fit.params['alpha[1]'] for fit in fits.values()]
+        params['beta']  = [fit.params['beta[1]'] for fit in fits.values()]
+        params.index = symbols
+        return returns, fits, params, pd.DataFrame(corr, columns=symbols, index=symbols)
 
-    return returns, fits, params, pd.DataFrame(corr, columns=symbols, index=symbols)
+    def getMCPaths(drifts, corr, sigma_last, params, num_paths=1000, num_steps=252):
+        paths   = np.zeros(shape=(num_paths, num_steps + 1, len(drifts)))   
+        sigma_2 = np.ones(shape=(num_paths, num_steps + 1, len(drifts))) + sigma_last**2
+            
+        noise = np.random.multivariate_normal([0.0]*len(drifts), corr, size=(num_paths, num_steps))
+        # noise = stat.gennorm(params.nu).rvs(size=(num_paths, num_steps))
+        for symbol_idx in range(len(drifts)):
+            for t in range(1, num_steps + 1):   
+                sigma_2[:,t,symbol_idx] = params.omega[symbol_idx] + params.alpha[symbol_idx] * paths[:,t-1,symbol_idx]**2 + params.beta[symbol_idx] * sigma_2[:,t-1,symbol_idx]
+                paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t-1,symbol_idx]
+        return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
-
-def garch_mc(drifts, corr, sigma_last, params, num_paths=1000, num_steps=252):
-    paths   = np.zeros(shape=(num_paths, num_steps + 1, len(drifts)))   
-    sigma_2 = np.ones(shape=(num_paths, num_steps + 1, len(drifts))) + sigma_last**2
-        
-    noise = np.random.multivariate_normal([0.0]*len(drifts), corr, size=(num_paths, num_steps))
-    # noise = stat.gennorm(params.nu).rvs(size=(num_paths, num_steps))
-    for symbol_idx in range(len(drifts)):
-        for t in range(1, num_steps + 1):   
-            sigma_2[:,t,symbol_idx] = params.omega[symbol_idx] + params.alpha[symbol_idx] * paths[:,t-1,symbol_idx]**2 + params.beta[symbol_idx] * sigma_2[:,t-1,symbol_idx]
-            paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t-1,symbol_idx]
-    return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
 # Asset replication for Monte Carlo
 def do_basket(basket, cutoff=0.01):
@@ -102,21 +102,15 @@ def do_basket(basket, cutoff=0.01):
     dropped = 100.0 - 100.0*basket[basket_.index].sum()
     print(f'dropped {len(basket) - len(basket_)} name(s) totaling {dropped:.2f}%')
 
-    count = 0
-    for symbol in list(basket_.index):
-        if risk.is_symbol_cached(symbol)[0] == -1 or risk.is_symbol_cached(symbol)[0] > 10:
-            count += 1
-            risk.get_data([symbol])
-        if count == 5:
-            time.sleep(30.0)
-            count = 0
+    # Just load for later.
+    _data = load_with_stall(basket_)
     return basket_
 
 def getReplication(basket: pd.Series, ltcma: pd.DataFrame):
     basket_ = do_basket(basket)
     folio = TaxablePortfolio(basket_)
     factors = FactorUniverse.ASSET.getFactors()
-    rsq, weights = decompose_const(folio.value, factors)
+    _rsq, weights = decompose_const(folio.value, factors)
     return pd.Series(weights.values, index=ltcma.loc[weights.index].etf)
 
 class MCPortfolio:
@@ -124,19 +118,19 @@ class MCPortfolio:
         self.basket = basket
         self.brackets = brackets
         self.taxes = brackets.getTaxesByAsset(basket.index)
-        self.data = risk.get_data(basket.index)
-        self.prices = risk.get_prices(self.data, field='close')
-        self.yields = risk.get_indic_yields(self.data, last=True)
+        self.data = get_data(basket.index)
+        self.prices = Utils.getPrices(self.data, field='close')
+        self.yields = Utils.getIndicYields(self.data, last=True)
 
     def generate_paths(self, years=10, drifts=None, vols=None, N=1000):
         # Use GARCH(1,1) with Multivariate Normal innovations.
-        _, fits, params, corr = garch_fit_multi(self.basket.index)
+        _, fits, params, corr = Garch.fitMulti(self.basket.index)
         sigma_last = np.array([fit.conditional_volatility[-1] for fit in fits.values()])
 
         # Drift is either given or uses historical average.
         log_r = np.log(self.prices.dropna()/self.prices.dropna().shift(1))
         self.drifts = drifts if drifts is not None else 252.0 * log_r.mean()
-        self.paths = garch_mc(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
+        self.paths = Garch.getMCPaths(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
 
     def build(self, init_value, withdraw_fixed, withdraw_pct, fee=0.00, withdraw_explicit=None):
         N = self.paths.shape[0]

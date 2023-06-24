@@ -216,6 +216,19 @@ class FundCategory(Enum):
         ]
 
 
+class CloseMethod(Enum):
+    RAW = 1
+    ADJUSTED = 2
+
+    def __str__(self) -> str:
+        if self == CloseMethod.ADJUSTED:
+            return 'adjusted close'
+        elif self == CloseMethod.RAW:
+            return 'close'
+
+
+# Compute relevant quantities. 
+# These functions are given dataframes and do not access remote data themselves.
 class Utils:
     @staticmethod
     def getDateOffset(timespan: str) -> pd.Timedelta:
@@ -280,6 +293,115 @@ class Utils:
         summed  = grouped.sum()[grouped.count() >= cutoff]
         normed  = (summed / grouped.count() * norm) if type(norm) == int else summed
         return normed.dropna()
+    
+    @staticmethod
+    def getDividendVol(data: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+        """
+        Return stddev of annual income / average annual income.
+        """
+        divs   = Utils.getDivs(data)
+        divvol  = {}
+        divdraw = {}
+        for key, value in divs.items():
+            # If no dividends, return 0%.
+            if len(divs[key]) == 0:
+                divvol[key] = 0.0
+                continue
+            # Sum annual income, include years with at least 1/4 typical divs (ex: 1 qtr if quarterly)
+            # and normalize by typical number of divs per year.
+            ann_divs = Utils.aggregateToPeriod(divs[key].amount, freq='A', norm=1.0/divs[key].period.mean(), cutoff=0.25/divs[key].period.mean())
+            divvol[key]  = ann_divs.std() / ann_divs.mean()
+            divdraw[key] = Utils.getMaxDrawdown(ann_divs)
+        return pd.Series(divvol), pd.Series(divdraw)
+    
+    @staticmethod
+    def getPrices(data: Dict[str, pd.DataFrame], method: CloseMethod = CloseMethod.ADJUSTED) -> pd.DataFrame:
+        """
+        Aggregate a field from each symbol into one dataframe.
+        """
+        prices = pd.concat([df[str(method)] for df in data.values()],axis=1,sort=True)
+        prices.columns = data.keys()
+        return prices
+    
+    @staticmethod
+    def getRiskReturn(prices: pd.DataFrame, ann_factor: int = 252) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
+        """
+        Compute following metrics:
+        total return (annualized), annualized volatility, annualized downvol (volatility | -return), covariance matrix
+        """
+        results = []
+        # Do each symbol individually
+        for symbol in prices.columns:
+            px      = prices[symbol].dropna()
+            returns = px.pct_change()
+            rf      = 0.0 #get_risk_free(px.index)
+            years   = Utils.getYears(px)
+
+            series = pd.Series(dtype=np.float)
+            series['tr']      = np.log(px.iloc[-1]/px.iloc[0]) / years
+            series['vol']     = np.sqrt( (np.log(1.0 + returns)**2).mean() * ann_factor )
+            series['downvol'] = np.sqrt( (np.log(1.0 + returns[returns < 0])**2).mean(axis=0) * ann_factor )
+            series['sharpe']  = (series.tr - rf) / series.vol
+            series['sortino'] = (series.tr - rf) / series.downvol
+            series.name = symbol
+            results.append(series)
+        results = pd.DataFrame(results)
+        variance = pd.DataFrame(results.vol).dot(pd.DataFrame(results.vol).T)
+        covar = variance*prices.dropna().pct_change().corr()
+        return results, covar
+    
+    @staticmethod
+    def getDivs(data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        div_data = {}
+        for symbol in data.keys():
+            divs = data[symbol].loc[data[symbol]['dividend amount'] > 0]
+            df = pd.DataFrame()
+            df['amount'] = divs['dividend amount']
+            df['yield'] = divs['dividend amount'] / divs['close']
+            df['period'] = divs.index.to_series().diff().map(lambda dt: dt.days/365)
+            # Drop dividends > 5% (assume these are special dividends)
+            div_data[symbol] = df.drop(df.loc[df['yield'] >= 0.05].index, axis=0)
+        return div_data
+    
+    @staticmethod
+    def matchIndices(series_a: Union[pd.DataFrame, pd.Series], series_b: Union[pd.DataFrame, pd.Series]
+                    ) -> Tuple[Union[pd.DataFrame, pd.Series], Union[pd.DataFrame, pd.Series]]:
+        subset_idx = series_a.index[series_a.index.isin(series_b.index)]
+        return series_a.loc[subset_idx], series_b.loc[subset_idx]
+    
+    @staticmethod
+    def getIndicYields(data: Dict[str, pd.DataFrame], last: bool = False, timespan: str = '1y') -> pd.Series:
+        """
+        Get indic yields using dividends paid over timespan.
+        last: if True, returns last div / avg. period (using all divs), otherwise return sum(divs)
+        """
+        div_data = Utils.getDivs(data)
+        prices   = Utils.getPrices(data, method=CloseMethod.RAW)
+
+        yields = []
+        for symbol, divs in div_data.items():
+            window = divs[datetime.today() - Utils.getDateOffset(timespan):].amount
+            ann_factor = Utils.getDateOffset(timespan).days / 365
+            if len(window) == 0:
+                yields.append(0.0)
+                continue
+            if last:
+                window = divs.iloc[-1].amount
+                ann_factor = divs.period.mean()
+            yields.append(window.sum() / prices[symbol].dropna().iloc[-1] / ann_factor)
+        return pd.Series(yields, index=div_data.keys()).fillna(0.0)
+    
+    @staticmethod
+    def getMetrics(prices: pd.DataFrame, data: Optional[Dict[str,pd.DataFrame]] = None, ann_factor: int = 252) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        results, covar = Utils.getRiskReturn(prices, ann_factor=ann_factor)
+        metrics = pd.DataFrame()
+        metrics = metrics.assign(tr=results.tr, vol=results.vol, sharpe=results.sharpe, sortino=results.sortino)
+        metrics = metrics.assign(maxdraw=[Utils.getMaxDrawdown(prices[ticker].dropna()) for ticker in metrics.index])
+        if data is not None:
+            yields = Utils.getIndicYields(data)
+            divstd = Utils.getDividendVol(data)
+            metrics = metrics.assign(divs=yields, divstd=divstd[0])
+        return metrics, covar
 
 
 def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
@@ -391,75 +513,6 @@ def get_data(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataF
     return data
 
 
-def get_prices(data: Dict[str, pd.DataFrame], field: str = 'adjusted close') -> pd.DataFrame:
-    """
-    Aggregate a field from each symbol into one dataframe.
-    """
-    assert field in ['adjusted close', 'close'], f'invalid field: {field}'
-    prices = pd.concat([df[field] for df in data.values()],axis=1,sort=True)
-    prices.columns = data.keys()
-    return prices
-
-
-def get_divs(data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-    """
-    Get dividends and derived data.
-    """
-    div_data = {}
-    for symbol in data.keys():
-        divs = data[symbol].loc[data[symbol]['dividend amount'] > 0]
-        df = pd.DataFrame()
-        df['amount'] = divs['dividend amount']
-        df['yield'] = divs['dividend amount'] / divs['close']
-        df['period'] = divs.index.to_series().diff().map(lambda dt: dt.days/365)
-        # Drop dividends > 5% (assume these are special dividends)
-        div_data[symbol] = df.drop(df.loc[df['yield'] >= 0.05].index, axis=0)
-    return div_data
-
-
-def get_div_vol(data: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
-    """
-    Return stddev of annual income / average annual income.
-    """
-    divs   = get_divs(data)
-    divvol  = {}
-    divdraw = {}
-    for key, value in divs.items():
-        # If no dividends, return 0%.
-        if len(divs[key]) == 0:
-            divvol[key] = 0.0
-            continue
-        # Sum annual income, include years with at least 1/4 typical divs (ex: 1 qtr if quarterly)
-        # and normalize by typical number of divs per year.
-        ann_divs = Utils.aggregateToPeriod(divs[key].amount, freq='A', norm=1.0/divs[key].period.mean(), cutoff=0.25/divs[key].period.mean())
-        divvol[key]  = ann_divs.std() / ann_divs.mean()
-        divdraw[key] = Utils.getMaxDrawdown(ann_divs)
-    return pd.Series(divvol), pd.Series(divdraw)
-
-
-def get_indic_yields(data: Dict[str, pd.DataFrame], last: bool = False, timespan: str = '1y') -> pd.Series:
-    """
-    Get indic yields using dividends paid over timespan.
-
-    last: if True, returns last div / avg. period (using all divs), otherwise return sum(divs)
-    """
-    div_data = get_divs(data)
-    prices   = get_prices(data, field='close')
-
-    yields = []
-    for symbol, divs in div_data.items():
-        window = divs[datetime.today() - Utils.getDateOffset(timespan):].amount
-        ann_factor = Utils.getDateOffset(timespan).days / 365
-        if len(window) == 0:
-            yields.append(0.0)
-            continue
-        if last:
-            window = divs.iloc[-1].amount
-            ann_factor = divs.period.mean()
-        yields.append(window.sum() / prices[symbol].dropna().iloc[-1] / ann_factor)
-    return pd.Series(yields, index=div_data.keys()).fillna(0.0)
-
-
 def is_earnings_cached(symbol: str) -> Tuple[int, Optional[str]]:
     """
     Check if earnings data for symbol is cached, and return age/filename if found.
@@ -518,72 +571,6 @@ def get_reported(earns: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         quarter = pd.PeriodIndex(earns[symbol].fiscalDateEnding, freq='Q')
         earns_df[symbol] = pd.Series(earns[symbol].groupby(quarter).sum().reportedEPS, name=symbol)
     return earns_df
-
-
-def quickload(symbols: List[str], field: str = 'adjusted close') -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Aggregate get_data, get_prices, get_indic_yields with default optional parameters.
-    """
-    assert field in ['adjusted close', 'close']
-    data = get_data(symbols)
-    prices = get_prices(data, field=field)
-    yields = get_indic_yields(data)
-    return prices, yields
-
-
-def get_risk_return(prices: pd.DataFrame, ann_factor: int = 252) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
-    """
-    Compute following metrics:
-    total return (annualized)
-    annualized volatility over whole period
-    annualized downvol (volatility | -return) over whole period
-    covariance matrix over whole period
-    """
-    results = []
-    # Do each symbol individually
-    for symbol in prices.columns:
-        px      = prices[symbol].dropna()
-        returns = px.pct_change()
-        rf      = 0.0 #get_risk_free(px.index)
-        years   = Utils.getYears(px)
-
-        series = pd.Series(dtype=np.float)
-        series['tr']      = np.log(px.iloc[-1]/px.iloc[0]) / years
-        series['vol']     = np.sqrt( (np.log(1.0 + returns)**2).mean() * ann_factor )
-        series['downvol'] = np.sqrt( (np.log(1.0 + returns[returns < 0])**2).mean(axis=0) * ann_factor )
-        series['sharpe']  = (series.tr - rf) / series.vol
-        series['sortino'] = (series.tr - rf) / series.downvol
-        series.name = symbol
-        results.append(series)
-    results = pd.DataFrame(results)
-    variance = pd.DataFrame(results.vol).dot(pd.DataFrame(results.vol).T)
-    covar = variance*prices.dropna().pct_change().corr()
-    return results, covar
-
-
-def get_metrics(prices: pd.DataFrame, data: Optional[Dict[str,pd.DataFrame]] = None, ann_factor: int = 252) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Compute risk metrics + div yield per symbol.
-    """
-    results, covar = get_risk_return(prices, ann_factor=ann_factor)
-    metrics = pd.DataFrame()
-    metrics = metrics.assign(tr=results.tr, vol=results.vol, sharpe=results.sharpe, sortino=results.sortino)
-    metrics = metrics.assign(maxdraw=[Utils.getMaxDrawdown(prices[ticker].dropna()) for ticker in metrics.index])
-    if data is not None:
-        yields = get_indic_yields(data)
-        divstd = get_div_vol(data)
-        metrics = metrics.assign(divs=yields, divstd=divstd[0])
-    return metrics, covar
-
-
-def match_indices(series_a: Union[pd.DataFrame, pd.Series], series_b: Union[pd.DataFrame, pd.Series]
-                  ) -> Tuple[Union[pd.DataFrame, pd.Series], Union[pd.DataFrame, pd.Series]]:
-    """
-    Return subsets of A & B with shared indices.
-    """
-    subset_idx = series_a.index[series_a.index.isin(series_b.index)]
-    return series_a.loc[subset_idx], series_b.loc[subset_idx]
-
 
 
 # Bond Math

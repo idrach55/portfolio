@@ -12,22 +12,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from . import risk
-from .risk import FundCategory, Utils
-
-
-def agg_folio_csv(folios: List[str], saveas: str) -> None:
-    folios = ['portfolios/{}'.format(folio) for folio in folios]
-    saveas = 'portfolios/{}'.format(saveas)
-    dfs = [pd.read_csv(folio, index_col=0) for folio in folios]
-    symbols = dfs[0].index
-    for df in dfs[1:]:
-        symbols = symbols.append(df.index)
-    symbols = symbols.unique()
-    total = dfs[0].reindex(symbols).fillna(0.0)
-    for df in dfs[1:]:
-        total += df.reindex(symbols).fillna(0.0)
-    total.to_csv(saveas)
+from .risk import CloseMethod, FundCategory, Utils, get_data, get_risk_free
 
 
 @dataclass
@@ -78,15 +63,15 @@ class TaxablePortfolio:
         if categorize:
             self.taxes = brackets.getTaxesByAsset(basket.index)
 
-        self.data   = risk.get_data(basket.index)
+        self.data   = get_data(basket.index)
 
         # Quote yields as post-tax
-        self.yields = risk.get_indic_yields(self.data, last=True)
+        self.yields = Utils.getIndicYields(self.data, last=True)
         self.yields *= (1.0 - self.taxes)
 
         # Leave these with NAs for full data per symbol (to compute risks)
-        self.prices_tr = risk.get_prices(self.data, field='adjusted close')
-        self.prices_pr = risk.get_prices(self.data, field='close')
+        self.prices_tr = Utils.getPrices(self.data, method=CloseMethod.ADJUSTED)
+        self.prices_pr = Utils.getPrices(self.data, method=CloseMethod.RAW)
 
         # Drop NAs for use in building portfolio (want all symbols live)
         self.prices    = self.prices_pr.dropna()
@@ -97,7 +82,7 @@ class TaxablePortfolio:
             self.prices_pr = self.prices_pr[from_date:]
 
         # Build dividends dataframe
-        div_data  = risk.get_divs(self.data)
+        div_data  = Utils.getDivs(self.data)
         self.divs = pd.concat([div_data[symbol]['amount'] for symbol in self.basket.index], axis=1)
         self.divs.columns = self.basket.index
         self.divs = self.divs.reindex(self.prices.index).fillna(0.0)
@@ -148,15 +133,15 @@ class TaxablePortfolio:
         Get metrics for underlyings and portfolio. Include taxable yield (by divs) in sharpe, but show yields as taxable (by income) in dataframe.
         """
         # Compute volatility of post-tax dividend yield
-        divstd, divdraw = risk.get_div_vol(self.data)
+        divstd, divdraw = Utils.getDividendVol(self.data)
 
         # Compute metrics for basket, but rename as price-return.
         # Sharpe/sortino based on total return.
         prices_pr_ = self.prices_pr.dropna() if align else self.prices_pr
         prices_tr_ = self.prices_tr.dropna() if align else self.prices_tr
 
-        results_pr, covar = risk.get_risk_return(prices_pr_)
-        results_tr, covar = risk.get_risk_return(prices_tr_)
+        results_pr, covar = Utils.getRiskReturn(prices_pr_)
+        results_tr, covar = Utils.getRiskReturn(prices_tr_)
 
         live_since = pd.Series({symbol: self.prices_pr[symbol].dropna().index[0] for symbol in self.prices.columns})
 
@@ -167,7 +152,7 @@ class TaxablePortfolio:
         returns = self.value.pct_change()[1:]
         vol   = np.sqrt( (np.log(1.0 + returns)**2).mean()*252 )
         dnvol = np.sqrt( (np.log(1.0 + returns[returns < 0.0])**2).mean()*252 )
-        rf    = risk.get_risk_free(self.value.index)
+        rf    = get_risk_free(self.value.index)
 
         # Requote PR/TR using weights & full history per security, rather than only full portfolio's history.
         sharpe   = (np.dot(self.basket, metrics.tr) - rf)/vol
