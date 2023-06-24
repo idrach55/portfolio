@@ -16,54 +16,6 @@ from . import risk
 from .risk import FundCategory, Utils
 
 
-def process_jpm(fname: str, save: bool = True) -> Optional[pd.DataFrame]:
-    # Load file (export csv from JP Morgan online.)
-    df = pd.read_csv('jpm/{}'.format(fname))
-    
-    # Drop content at & below FOOTNOTES row. 
-    df = df.iloc[:df.loc[df['Asset Class'] == 'FOOTNOTES'].index[0]]
-
-    # Municipal bonds show NaN tickers under Tax-Exempt Core, replace with IG muni ETF.
-    # Replace cash with T-Bill ETF and preferred stocks with ETF.
-    new_tickers = []
-    for idx, row in df.iterrows():
-        if not pd.isna(row.Ticker) and ' ' in row.Ticker:
-            new_tickers.append('PFF')
-        elif not pd.isna(row.Ticker):
-            new_tickers.append(row.Ticker)
-        elif row['Asset Strategy Detail'] in ['Tax-Exempt Core']:
-            new_tickers.append('MUB')
-        elif row['Asset Strategy Detail'] == 'Cash':
-            new_tickers.append('BIL')
-        else:
-            new_tickers.append(row.Ticker)
-    df.Ticker = new_tickers
-    old_value = df.Value.sum()
-    df = df.drop(df.loc[df.Ticker.isna()].index)
-
-    muni = df.loc[df.Ticker == 'MUB']
-    pff  = df.loc[df.Ticker == 'PFF']
-    if len(muni) > 0:
-        df = df.drop(muni.index, axis=0)
-    if len(pff) > 0:
-        df = df.drop(pff.index, axis=0)
-
-    df = df[['Ticker','Value']]
-    df.index = df.Ticker
-    df = df.Value
-    if len(muni) > 0:
-        df = pd.concat([df, pd.Series({'MUB': muni.Value.sum()})])
-    if len(pff) > 0:
-        df = pd.concat([df, pd.Series({'PFF': pff.Value.sum()})])
-    df.name = 'value'
-    df.index.name = 'symbol'
-
-    if save:
-        df.to_csv('portfolios/{}'.format(fname))
-    else:
-        return df
-
-
 def agg_folio_csv(folios: List[str], saveas: str) -> None:
     folios = ['portfolios/{}'.format(folio) for folio in folios]
     saveas = 'portfolios/{}'.format(saveas)

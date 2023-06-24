@@ -24,6 +24,16 @@ class FactorUniverse(Enum):
     ASSET = 3
 
     @staticmethod
+    def create(universe: str) -> FactorUniverse:
+        assert universe in ['style', 'sector', 'asset']
+        if universe == 'style':
+            return FactorUniverse.STYLE
+        elif universe == 'sector':
+            return FactorUniverse.SECTOR
+        elif universe == 'asset':
+            return FactorUniverse.ASSET
+
+    @staticmethod
     def makeFactorsStyle(returns: pd.DataFrame) -> pd.DataFrame:
         # Treasury bonds: SHY = 1-3y, IEI = 3-7y, IEF = 7-10y, TLH = 10-20y, TLT = 20y+
         factors = pd.DataFrame()
