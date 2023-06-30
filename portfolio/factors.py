@@ -123,8 +123,8 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
     """
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
-
-    returns_s, factors_s = Utils.matchIndices(returns, factors)
+    subset_idx = returns.index[returns.index.isin(factors.index)]
+    returns_s, factors_s = returns.loc[subset_idx], factors.loc[subset_idx]
 
     fitted = OLS().fit(factors_s, returns_s)
     r_squared = fitted.score(factors_s, returns_s)
@@ -141,8 +141,8 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
 def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series]:
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
-
-    returns_s, factors_s = Utils.matchIndices(returns, factors)
+    subset_idx = returns.index[returns.index.isin(factors.index)]
+    returns_s, factors_s = returns.loc[subset_idx], factors.loc[subset_idx]
     cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
     def err(w):
         return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()

@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 from .services import AlphaVantage as av
 
 # CONSTANTS
-DATA_DIR = 'data'
+DATA_DIR = os.environ.get('DATA_DIR', 'data')
 
 class UnitType(Enum):
     All = 1
@@ -377,7 +377,7 @@ class Utils:
             rf      = 0.0 #get_risk_free(px.index)
             years   = Utils.getYears(px)
 
-            series = pd.Series(dtype=np.float)
+            series = pd.Series(float)
             series['tr']      = np.log(px.iloc[-1]/px.iloc[0]) / years
             series['vol']     = np.sqrt( (np.log(1.0 + returns)**2).mean() * ann_factor )
             series['downvol'] = np.sqrt( (np.log(1.0 + returns[returns < 0])**2).mean(axis=0) * ann_factor )
@@ -402,12 +402,6 @@ class Utils:
             # Drop dividends > 5% (assume these are special dividends)
             div_data[symbol] = df.drop(df.loc[df['yield'] >= 0.05].index, axis=0)
         return div_data
-    
-    @staticmethod
-    def matchIndices(series_a: Union[pd.DataFrame, pd.Series], series_b: Union[pd.DataFrame, pd.Series]
-                    ) -> Tuple[Union[pd.DataFrame, pd.Series], Union[pd.DataFrame, pd.Series]]:
-        subset_idx = series_a.index[series_a.index.isin(series_b.index)]
-        return series_a.loc[subset_idx], series_b.loc[subset_idx]
     
     @staticmethod
     def getIndicYields(data: Dict[str, pd.DataFrame], last: bool = False, timespan: str = '1y') -> pd.Series:

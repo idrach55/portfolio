@@ -5,6 +5,7 @@ Date: 8/16/2021
 Simple API clients for various financial data providers -- mostly AlphaVantage. 
 """
 
+import os
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -12,7 +13,7 @@ import pandas as pd
 import requests
 
 # CONSTANTS
-KEY_DIR = 'keys'
+KEY_DIR = os.environ.get('KEY_DIR', 'keys')
 
 class AlphaVantage:
     def __init__(self, api_key: Optional[str] = None):
