@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from .risk import CloseMethod, FundCategory, Utils, get_data, get_risk_free
+from .risk import CloseMethod, Driver, FundCategory, Utils, get_risk_free
 
 
 @dataclass
@@ -63,7 +63,7 @@ class TaxablePortfolio:
         if categorize:
             self.taxes = brackets.getTaxesByAsset(basket.index)
 
-        self.data   = get_data(basket.index)
+        self.data   = Driver.getData(basket.index)
 
         # Quote yields as post-tax
         self.yields = Utils.getIndicYields(self.data, last=True)

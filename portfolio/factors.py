@@ -15,7 +15,7 @@ import scipy.optimize as opt
 from sklearn.linear_model import LinearRegression as OLS
 from sklearn.metrics import r2_score
 
-from .risk import Utils, load_with_stall
+from .risk import Driver, Utils
 
 
 class FactorUniverse(Enum):
@@ -91,7 +91,7 @@ class FactorUniverse(Enum):
         components = self.getComponents()
 
         # Get data and build prices dataframe
-        data    = load_with_stall(list(components.values))
+        data    = Driver.getData(list(components.values))
         prices  = Utils.getPrices(data).dropna()
         returns = prices.pct_change().iloc[1:]
 
@@ -109,14 +109,9 @@ class FactorUniverse(Enum):
         # Prepend 1.0 for each factor's initial price: just a niceity
         return pd.concat([pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]), factors])
     
-
 def regress_factor(A: pd.Series, B: pd.DataFrame) -> pd.Series:
-    """
-    Regress s.t. A = beta x B + epsilon
-    """
     fitted = OLS().fit(B, A)
     return A - (fitted.coef_ * B).sum(axis=1)
-
 
 def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series, pd.DataFrame]:
     """
@@ -126,7 +121,6 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
     factors: pd.DataFrame of factor prices
     returns r-squared score, pd.Series factor-predicted price, pd.DataFrame of factor coefs
     """
-
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
 
@@ -144,7 +138,6 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
     # pred = pd.Series({prices.index[0]: 1.0}).append(pred)
     return r_squared, pred, df
 
-
 def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series]:
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
@@ -161,11 +154,7 @@ def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd
     rsq = r2_score(returns_s, (weights * factors_s).sum(axis=1))
     return rsq, weights
 
-
 def decompose_multi(prices: pd.DataFrame, factors: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.DataFrame]]:
-    """
-    Perform factor decomp on multiple names.
-    """
     rsq  = pd.Series()
     pred = pd.DataFrame()
     df   = {}

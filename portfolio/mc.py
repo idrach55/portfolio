@@ -5,14 +5,14 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
 from analytics import TaxablePortfolio, TaxBrackets
 from arch.univariate import GARCH, Normal, ZeroMean
 from factors import FactorUniverse, decompose_const
-from risk import Utils, get_data, load_with_stall
+from risk import Driver, Utils
 
 
 class Garch:
@@ -56,7 +56,7 @@ class Garch:
         fits    = {}
         epsilon = {}
         for symbol in symbols:
-            prices = Utils.getPrices(get_data([symbol]))
+            prices = Driver.getPrices([symbol])
             returns[symbol] = Garch.process(prices[symbol])
             fits[symbol] = Garch.fit(returns[symbol])
             epsilon[symbol] = 100.0 * returns[symbol] / fits[symbol].conditional_volatility
@@ -86,7 +86,6 @@ class Garch:
                 paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t-1,symbol_idx]
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
-
 # Asset replication for Monte Carlo
 def do_basket(basket, cutoff=0.01):
     removes = []
@@ -103,7 +102,7 @@ def do_basket(basket, cutoff=0.01):
     print(f'dropped {len(basket) - len(basket_)} name(s) totaling {dropped:.2f}%')
 
     # Just load for later.
-    _data = load_with_stall(basket_)
+    _data = Driver.getData(basket_)
     return basket_
 
 def getReplication(basket: pd.Series, ltcma: pd.DataFrame):
@@ -118,7 +117,7 @@ class MCPortfolio:
         self.basket = basket
         self.brackets = brackets
         self.taxes = brackets.getTaxesByAsset(basket.index)
-        self.data = get_data(basket.index)
+        self.data = Driver.getData(basket.index)
         self.prices = Utils.getPrices(self.data, field='close')
         self.yields = Utils.getIndicYields(self.data, last=True)
 

@@ -7,7 +7,6 @@ Code for downloading stock and other financial data, processing/transforming, an
 from __future__ import annotations
 
 import os
-import time
 from datetime import datetime
 from enum import Enum
 from io import StringIO
@@ -19,7 +18,6 @@ import numpy as np
 import pandas as pd
 import requests
 import scipy.optimize as opt
-import tqdm
 from bs4 import BeautifulSoup
 
 from .services import AlphaVantage as av
@@ -27,28 +25,40 @@ from .services import AlphaVantage as av
 # CONSTANTS
 DATA_DIR = 'data'
 
+class UnitType(Enum):
+    All = 1
+    OneBd = 2
+
+    def __str__(self):
+        return self.name
+    
+class CloseMethod(Enum):
+    RAW = 1
+    ADJUSTED = 2
+
+    def __str__(self) -> str:
+        if self == CloseMethod.ADJUSTED:
+            return 'adjusted close'
+        elif self == CloseMethod.RAW:
+            return 'close'
+
 # All things that hit external API. These are here and not services as they refer to DATA_DIR for caching.
 class Driver:
     @staticmethod
-    def download_rental_data(unit_type: str = 'All') -> None:
-        """
-        Download median asking rent and inventory from StreetEasy.
-        """
-        assert unit_type in ['All', 'OneBd']
-
-        categories = ['medianAskingRent_{}'.format(unit_type), 'rentalInventory_{}'.format(unit_type)]
+    def getRentalData(unit_type: UnitType) -> None:
+        categories = [f'medianAskingRent_{unit_type}', f'rentalInventory_{unit_type}']
         for cat in categories:
-            if '{}.csv'.format(cat) in os.listdir(DATA_DIR):
-                os.remove('{}/{}.csv'.format(DATA_DIR, cat))
+            if f'{cat}.csv' in os.listdir(DATA_DIR):
+                os.remove(f'{DATA_DIR}/{cat}.csv')
 
-            url = 'https://streeteasy-market-data-download.s3.amazonaws.com/rentals/{}/{}.zip'.format(unit_type, cat)
+            url = f'https://streeteasy-market-data-download.s3.amazonaws.com/rentals/{unit_type}/{cat}.zip'
             with open('data.zip','wb') as file:
                 file.write(urlopen(url).read())
             ZipFile('data.zip').extractall(f'{DATA_DIR}/')
             os.remove('data.zip')
 
     @staticmethod
-    def has_options(symbol: str) -> bool:
+    def getHasOptions(symbol: str) -> bool:
         r = requests.get('https://finance.yahoo.com/quote/{}/options?p={}'.format(symbol, symbol))
         soup = BeautifulSoup(r.text, features='lxml')
         for span in soup.find_all('span'):
@@ -57,10 +67,8 @@ class Driver:
         return True
 
     @staticmethod
-    def get_ishares_data(etf: str) -> pd.DataFrame:
-        """
-        Get iShares ETF composiiton.
-        """
+    def getBlackRockData(etf: str) -> pd.DataFrame:
+        # Get iShares ETF composiiton.
         etfs = {'IVV': '/us/products/239726/ishares-core-sp-500-etf',
                 'HYG': '/us/products/239565/ishares-iboxx-high-yield-corporate-bond-etf'}
 
@@ -81,10 +89,7 @@ class Driver:
         return df.iloc[:-1]
 
     @staticmethod
-    def get_etf_category(symbol: str) -> str:
-        """
-        Get the category from etfdb.com. These are also cached.
-        """
+    def getETFCategory(symbol: str) -> str:
         cache = pd.DataFrame()
         if 'etfs.csv' in os.listdir(DATA_DIR):
             cache = pd.read_csv(f'{DATA_DIR}/etfs.csv',index_col=0)
@@ -100,7 +105,7 @@ class Driver:
         return category
     
     @staticmethod
-    def get_treasury_data() -> pd.DataFrame:
+    def getTreasuryData() -> pd.DataFrame:
         url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=all'
         data = []
         dates = []
@@ -130,10 +135,69 @@ class Driver:
         df = pd.DataFrame(data)
         df.index = dates
         return df
+    
+    @staticmethod
+    def getIsCached(symbol: str):
+        existing_data = os.listdir(DATA_DIR)
+        existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
+        if symbol in existing_syms.keys():
+            fname = existing_syms[symbol]
+            data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
+            return (datetime.today() - data_date).days, fname
+        else:
+            return -1, None
+    
+    @staticmethod
+    def getData(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataFrame]:
+        """
+        Load historical price data either from cache or API.
+        """
+        data = {}
+        for symbol in symbols:
+            # Store downloaded data into its own dataframe to avoid truncating index to prior symbols.
+            data_single = pd.DataFrame()
+            data_age, fname = Driver.getIsCached(symbol)
 
-"""
-Hardcoded (unfortunately) asset classes for some mutual funds so the right tax treatment can be applied to distributions.
-"""
+            # If data is found in data directory and within age limit.
+            if data_age != -1 and data_age <= data_age_limit:
+                data_single = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
+                data_single.index = pd.to_datetime(data_single.index)
+                # Skip download and go to next symbol.
+                data[symbol] = data_single
+                continue
+            # If data is found but too old.
+            elif data_age > data_age_limit:
+                os.remove('{}/{}'.format(DATA_DIR,fname))
+
+            # If program flow gets here, data was either unavailable or too old.
+            try:
+                # Set up alphavantage API - uses default keyfile.
+                service = av()
+                data_single = service.chart(symbol, adjusted=True)
+            except:
+                # Likely from limit on 5 requests/minute.
+                # Drop the symbol and the user may re-run if desired (others will be cached then).
+                print('error: failed to load {}'.format(symbol))
+                continue
+            data_single.to_csv('{}/{}_{}.csv'.format(DATA_DIR,symbol,datetime.today().strftime('%d%b%y')))
+            data_single.index = pd.to_datetime(data_single.index)
+            data[symbol] = data_single
+
+        # 'Close' prices are actual close, need to be adjusted for splits to have any use.
+        for symbol in symbols:
+            r_factor = data[symbol]['split coefficient'][::-1].cumprod().shift(1)
+            r_factor.iloc[0] = 1.0
+            data[symbol]['close'] = data[symbol]['close'] / r_factor
+        return data
+    
+    @staticmethod
+    def getPrices(symbols: List[str], method: CloseMethod = CloseMethod.ADJUSTED) -> pd.DataFrame:
+        data = Driver.getData(symbols)
+        prices = pd.concat([df[str(method)] for df in data.values()],axis=1,sort=True)
+        prices.columns = data.keys()
+        return prices
+
+# Hardcoded (unfortunately) asset classes for some mutual funds so the right tax treatment can be applied to distributions.
 class FundCategory(Enum):
     MUNI = 1
     BOND = 2
@@ -199,7 +263,7 @@ class FundCategory(Enum):
     @staticmethod
     def createFromSymbol(symbol: str) -> FundCategory:
         if len(symbol) <= 4 or '-' in symbol:
-            category = FundCategory.createFromString(Driver.get_etf_category(symbol))
+            category = FundCategory.createFromString(Driver.getETFCategory(symbol))
         else:
             category = FundCategory.createFromMutualFund(symbol)
         if category == FundCategory.UNKNOWN:
@@ -215,26 +279,12 @@ class FundCategory(Enum):
             FundCategory.MONEY_MKT
         ]
 
-
-class CloseMethod(Enum):
-    RAW = 1
-    ADJUSTED = 2
-
-    def __str__(self) -> str:
-        if self == CloseMethod.ADJUSTED:
-            return 'adjusted close'
-        elif self == CloseMethod.RAW:
-            return 'close'
-
-
 # Compute relevant quantities. 
 # These functions are given dataframes and do not access remote data themselves.
 class Utils:
     @staticmethod
     def getDateOffset(timespan: str) -> pd.Timedelta:
-        """
-        Turn a date code, ex '5y', '3m', '1w' into a cutoff date.
-        """
+        # Turn a date code, ex '5y', '3m', '1w' into a cutoff date.
         multiplier = 1
         if timespan[-1] == 'y':
             multiplier = 52
@@ -266,9 +316,7 @@ class Utils:
 
     @staticmethod
     def getCrashMoves(portfolio: pd.Series, prices: pd.DataFrame, days: int = 30) -> pd.Series:
-        """
-        Compute the returns of a portfolio's constituents during the portfolio's max drawdown.
-        """
+        # Compute the returns of a portfolio's constituents during the portfolio's max drawdown.
         draw,idx = Utils.getMaxDrawdown(portfolio, index=True)
         # If lookback preceeds start of data, use start of data instead.
         if days > idx:
@@ -296,9 +344,7 @@ class Utils:
     
     @staticmethod
     def getDividendVol(data: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
-        """
-        Return stddev of annual income / average annual income.
-        """
+        # Return stddev of annual income / average annual income.
         divs   = Utils.getDivs(data)
         divvol  = {}
         divdraw = {}
@@ -316,19 +362,13 @@ class Utils:
     
     @staticmethod
     def getPrices(data: Dict[str, pd.DataFrame], method: CloseMethod = CloseMethod.ADJUSTED) -> pd.DataFrame:
-        """
-        Aggregate a field from each symbol into one dataframe.
-        """
         prices = pd.concat([df[str(method)] for df in data.values()],axis=1,sort=True)
         prices.columns = data.keys()
         return prices
     
     @staticmethod
     def getRiskReturn(prices: pd.DataFrame, ann_factor: int = 252) -> Tuple[pd.Series, pd.Series, pd.Series, pd.DataFrame]:
-        """
-        Compute following metrics:
-        total return (annualized), annualized volatility, annualized downvol (volatility | -return), covariance matrix
-        """
+        # Compute metrics: total return, volatility, downvol (volatility | -return), covariance matrix
         results = []
         # Do each symbol individually
         for symbol in prices.columns:
@@ -371,10 +411,7 @@ class Utils:
     
     @staticmethod
     def getIndicYields(data: Dict[str, pd.DataFrame], last: bool = False, timespan: str = '1y') -> pd.Series:
-        """
-        Get indic yields using dividends paid over timespan.
-        last: if True, returns last div / avg. period (using all divs), otherwise return sum(divs)
-        """
+        # If last=True, returns last div / avg. period (using all divs), otherwise return sum(divs)
         div_data = Utils.getDivs(data)
         prices   = Utils.getPrices(data, method=CloseMethod.RAW)
 
@@ -403,7 +440,6 @@ class Utils:
             metrics = metrics.assign(divs=yields, divstd=divstd[0])
         return metrics, covar
 
-
 def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
     """
     Get treasury data from Quandl. Same method as for stocks -- will check for existing data
@@ -428,13 +464,12 @@ def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
         else:
             os.remove('{}/{}'.format(DATA_DIR,fname))
     if reload:
-        treasury = Driver.get_treasury_data()
+        treasury = Driver.getTreasuryData()
         treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
     if match_idx is None:
         return treasury
     subset_idx = treasury.index[treasury.index.isin(match_idx)]
     return treasury.loc[subset_idx]
-
 
 def get_risk_free(match_idx: pd.Series) -> float:
     """
@@ -445,141 +480,66 @@ def get_risk_free(match_idx: pd.Series) -> float:
     years = Utils.getYears(treasury)
     return np.log(np.exp(np.sum(treasury['1m']/360)))/years
 
-def is_symbol_cached(symbol: str):
-    """
-    Check if data for symbol is cached, and return age/filename if found.
-    """
-    existing_data = os.listdir(DATA_DIR)
-    existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
-    if symbol in existing_syms.keys():
-        fname = existing_syms[symbol]
-        data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
-        return (datetime.today() - data_date).days, fname
-    else:
-        return -1, None
+class Earnings:
+    @staticmethod
+    def getIsCached(symbol: str) -> Tuple[int, Optional[str]]:
+        existing_data = os.listdir(f'{DATA_DIR}/')
+        existing_data = [fname for fname in existing_data if 'earnings-' in fname]
+        existing_syms = {fname[:fname.find('_')][9:]: fname for fname in existing_data}
+        if symbol in existing_syms.keys():
+            fname = existing_syms[symbol]
+            data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
+            return (datetime.today() - data_date).days, fname
+        else:
+            return -1, None
 
-def load_with_stall(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataFrame]:
-    counter = 0
-    for symbol in tqdm.tqdm(symbols):
-        is_cached = is_symbol_cached(symbol)[0] 
-        if is_cached == -1 or is_cached > data_age_limit:
-            get_data([symbol], data_age_limit=data_age_limit)
-            counter += 1
-        if counter == 5:
-            time.sleep(60.0)
-            counter = 0
-    return get_data(symbols, data_age_limit=data_age_limit)
+    @staticmethod
+    def getEarnings(symbols: List[str], data_age_limit: int = 30) -> Dict[str, pd.DataFrame]:
+        """
+        Get raw earnings data per symbol, structured as:
+        fiscal_quarter_end, report_date, report_eps, estimate_eps  
+        """
+        service = av()
+        earns = {}
+        for symbol in symbols:
+            data_age, fname = Earnings.getIsCached(symbol)
+            # If data is found in data directory and within age limit.
+            if data_age != -1 and data_age <= data_age_limit:
+                earnings = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
+                # Skip download and go to next symbol.
+                earns[symbol] = earnings
+                continue
+            # If data is found but too old.
+            elif data_age > data_age_limit:
+                os.remove('{}/{}'.format(DATA_DIR,fname))
 
-def get_data(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataFrame]:
-    """
-    Load historical price data either from cache or API.
-    """
-    data = {}
-    for symbol in symbols:
-        # Store downloaded data into its own dataframe to avoid truncating index to prior symbols.
-        data_single = pd.DataFrame()
-        data_age, fname = is_symbol_cached(symbol)
-
-        # If data is found in data directory and within age limit.
-        if data_age != -1 and data_age <= data_age_limit:
-            data_single = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
-            data_single.index = pd.to_datetime(data_single.index)
-            # Skip download and go to next symbol.
-            data[symbol] = data_single
-            continue
-        # If data is found but too old.
-        elif data_age > data_age_limit:
-            os.remove('{}/{}'.format(DATA_DIR,fname))
-
-        # If program flow gets here, data was either unavailable or too old.
-        try:
-            # Set up alphavantage API - uses default keyfile.
-            service = av()
-            data_single = service.chart(symbol, adjusted=True)
-        except:
-            # Likely from limit on 5 requests/minute.
-            # Drop the symbol and the user may re-run if desired (others will be cached then).
-            print('error: failed to load {}'.format(symbol))
-            continue
-        data_single.to_csv('{}/{}_{}.csv'.format(DATA_DIR,symbol,datetime.today().strftime('%d%b%y')))
-        data_single.index = pd.to_datetime(data_single.index)
-        data[symbol] = data_single
-
-    # 'Close' prices are actual close, need to be adjusted for splits to have any use.
-    for symbol in symbols:
-        r_factor = data[symbol]['split coefficient'][::-1].cumprod().shift(1)
-        r_factor.iloc[0] = 1.0
-        data[symbol]['close'] = data[symbol]['close'] / r_factor
-    return data
-
-
-def is_earnings_cached(symbol: str) -> Tuple[int, Optional[str]]:
-    """
-    Check if earnings data for symbol is cached, and return age/filename if found.
-    """
-    existing_data = os.listdir(f'{DATA_DIR}/')
-    existing_data = [fname for fname in existing_data if 'earnings-' in fname]
-    existing_syms = {fname[:fname.find('_')][9:]: fname for fname in existing_data}
-    if symbol in existing_syms.keys():
-        fname = existing_syms[symbol]
-        data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
-        return (datetime.today() - data_date).days, fname
-    else:
-        return -1, None
-
-
-def get_earnings(symbols: List[str], data_age_limit: int = 30) -> Dict[str, pd.DataFrame]:
-    """
-    Get raw earnings data per symbol, structured as:
-    fiscal_quarter_end, report_date, report_eps, estimate_eps  
-    """
-    service = av()
-    earns = {}
-    for symbol in symbols:
-        data_age, fname = is_earnings_cached(symbol)
-        # If data is found in data directory and within age limit.
-        if data_age != -1 and data_age <= data_age_limit:
-            earnings = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
-            # Skip download and go to next symbol.
+            # If program flow gets here, data was either unavailable or too old.
+            try:
+                earnings = pd.DataFrame(service.earnings(symbol)['quarterlyEarnings'])
+                earnings = earnings[::-1]
+                earnings.to_csv('{}/earnings-{}_{}.csv'.format(DATA_DIR, symbol, datetime.today().strftime('%d%b%y')))
+            except:
+                # Likely from limit on 5 requests/minute.
+                # Drop the symbol and the user may re-run if desired (others will be cached then).
+                print('error: failed to load {}'.format(symbol))
+                continue
             earns[symbol] = earnings
-            continue
-        # If data is found but too old.
-        elif data_age > data_age_limit:
-            os.remove('{}/{}'.format(DATA_DIR,fname))
+        return earns
 
-        # If program flow gets here, data was either unavailable or too old.
-        try:
-            earnings = pd.DataFrame(service.earnings(symbol)['quarterlyEarnings'])
-            earnings = earnings[::-1]
-            earnings.to_csv('{}/earnings-{}_{}.csv'.format(DATA_DIR, symbol, datetime.today().strftime('%d%b%y')))
-        except:
-            # Likely from limit on 5 requests/minute.
-            # Drop the symbol and the user may re-run if desired (others will be cached then).
-            print('error: failed to load {}'.format(symbol))
-            continue
-        earns[symbol] = earnings
-    return earns
-
-
-def get_reported(earns: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """
-    Build dataframe of reportedEPS by quarter for multiple names.
-    """
-    earns_df = pd.DataFrame()
-    for symbol in earns.keys():
-        earns[symbol].fiscalDateEnding = pd.to_datetime(earns[symbol].fiscalDateEnding)
-        quarter = pd.PeriodIndex(earns[symbol].fiscalDateEnding, freq='Q')
-        earns_df[symbol] = pd.Series(earns[symbol].groupby(quarter).sum().reportedEPS, name=symbol)
-    return earns_df
-
+    @staticmethod
+    def getReported(earns: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        earns_df = pd.DataFrame()
+        for symbol in earns.keys():
+            earns[symbol].fiscalDateEnding = pd.to_datetime(earns[symbol].fiscalDateEnding)
+            quarter = pd.PeriodIndex(earns[symbol].fiscalDateEnding, freq='Q')
+            earns_df[symbol] = pd.Series(earns[symbol].groupby(quarter).sum().reportedEPS, name=symbol)
+        return earns_df
 
 # Bond Math
 class Bond:
     @staticmethod
     def getSchedule(maturity: str) -> pd.PeriodIndex:
-        """
-        Build semi-annual schedule ending at maturity and starting at least today.
-        """
+        # Build semi-annual schedule ending at maturity and starting at least today.
         dates = pd.period_range(end=maturity, freq='6M', periods=100).to_timestamp()
         return dates[dates >= datetime.today()] + (pd.to_datetime(maturity) - dates[-1])
 
@@ -595,9 +555,7 @@ class Bond:
 
     @staticmethod
     def getCallDate(pv: float, coupon: float, rate: float, maturity: str):
-        """
-        Solve for call date of bond, given coupon, YTC, and max maturity. Assumes all coupon dates are call dates.
-        """
+        # Solve for call date of bond, given coupon, YTC, and max maturity. Assumes all coupon dates are call dates.
         dates = Bond.getSchedule(maturity)
         idx   = 0
         diff  = np.abs(Bond.getPv(coupon, rate, dates[0]) - pv)
