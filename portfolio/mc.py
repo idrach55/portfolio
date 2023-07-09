@@ -5,13 +5,13 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
-import sysconfig
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 from arch.univariate import GARCH, Normal, ZeroMean
 
+# import sysconfig
 # x86 = (sysconfig.get_platform().split("-")[-1].lower() == 'x86_64')
 # import portfolio.mcpp as mcpp
 from portfolio.analytics import TaxablePortfolio, TaxBrackets
@@ -91,6 +91,7 @@ class Garch:
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
     
     def getMCPathsCpp(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
+        assert False, "only use intentionally, requires building with pybind"
         paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
         sigma_2 = np.ones(shape=(num_paths, num_steps, len(drifts))) + sigma_last**2
             

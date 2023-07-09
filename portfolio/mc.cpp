@@ -3,7 +3,7 @@ env /usr/bin/arch -x86_64 /bin/zsh --login
 c++ -O3 -Wall -shared -std=c++11 -fPIC $(python -m pybind11 --includes) mc.cpp -o mcpp$(python3-config --extension-suffix) -undefined dynamic_lookup
 */
 
-#include <pybind11/pybind11.h>
+#include <pybind11/pybind11.h>>
 #include <pybind11/numpy.h>
 
 namespace py = pybind11;
