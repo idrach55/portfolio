@@ -5,14 +5,18 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
+import sysconfig
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
-from analytics import TaxablePortfolio, TaxBrackets
 from arch.univariate import GARCH, Normal, ZeroMean
-from factors import FactorUniverse, decompose_const
-from risk import Driver, Utils
+
+# x86 = (sysconfig.get_platform().split("-")[-1].lower() == 'x86_64')
+# import portfolio.mcpp as mcpp
+from portfolio.analytics import TaxablePortfolio, TaxBrackets
+from portfolio.factors import FactorUniverse, decompose_const
+from portfolio.risk import Driver, Utils
 
 
 class Garch:
@@ -74,16 +78,31 @@ class Garch:
         params.index = symbols
         return returns, fits, params, pd.DataFrame(corr, columns=symbols, index=symbols)
 
-    def getMCPaths(drifts, corr, sigma_last, params, num_paths=1000, num_steps=252):
-        paths   = np.zeros(shape=(num_paths, num_steps + 1, len(drifts)))   
-        sigma_2 = np.ones(shape=(num_paths, num_steps + 1, len(drifts))) + sigma_last**2
+    def getMCPaths(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
+        paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
+        sigma_2 = np.ones(shape=(num_paths, num_steps, len(drifts))) + sigma_last**2
             
         noise = np.random.multivariate_normal([0.0]*len(drifts), corr, size=(num_paths, num_steps))
-        # noise = stat.gennorm(params.nu).rvs(size=(num_paths, num_steps))
         for symbol_idx in range(len(drifts)):
-            for t in range(1, num_steps + 1):   
-                sigma_2[:,t,symbol_idx] = params.omega[symbol_idx] + params.alpha[symbol_idx] * paths[:,t-1,symbol_idx]**2 + params.beta[symbol_idx] * sigma_2[:,t-1,symbol_idx]
-                paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t-1,symbol_idx]
+            for t in range(num_steps):
+                if t > 0:
+                    sigma_2[:,t,symbol_idx] = params.omega[symbol_idx] + params.alpha[symbol_idx] * paths[:,t-1,symbol_idx]**2 + params.beta[symbol_idx] * sigma_2[:,t-1,symbol_idx]
+                paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t,symbol_idx]
+        return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
+    
+    def getMCPathsCpp(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
+        paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
+        sigma_2 = np.ones(shape=(num_paths, num_steps, len(drifts))) + sigma_last**2
+            
+        noise = np.random.multivariate_normal([0.0]*len(drifts), corr, size=(num_paths, num_steps))
+        mcpp.genPaths(
+            noise,
+            params.omega.values,
+            params.alpha.values,
+            params.beta.values,
+            sigma_2,
+            paths
+        )
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
 # Asset replication for Monte Carlo
@@ -129,7 +148,8 @@ class MCPortfolio:
         # Drift is either given or uses historical average.
         log_r = np.log(self.prices.dropna()/self.prices.dropna().shift(1))
         self.drifts = drifts if drifts is not None else 252.0 * log_r.mean()
-        self.paths = Garch.getMCPaths(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
+        paths = Garch.getMCPaths(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
+        self.paths = np.concatenate([np.ones(shape=(paths.shape[0], 1, paths.shape[2])), paths], axis=1)
 
     def build(self, init_value, withdraw_fixed, withdraw_pct, fee=0.00, withdraw_explicit=None):
         N = self.paths.shape[0]

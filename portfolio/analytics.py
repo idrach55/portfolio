@@ -50,7 +50,6 @@ class TaxablePortfolio:
     def __init__(self, 
                  basket: pd.Series, 
                  brackets: Optional[TaxBrackets] = None, 
-                 from_date: Optional[str] = None, 
                  reinvest: float = 0.0, 
                  categorize: bool = True):
         self.basket   = basket
@@ -58,10 +57,10 @@ class TaxablePortfolio:
         self.brackets = brackets if brackets else TaxBrackets.default()
 
         # First, assume all income taxed as qualified dividends.
-        self.taxes = pd.Series({symbol: brackets.getLTCapGains() for symbol in basket.index})
+        self.taxes = pd.Series({symbol: self.brackets.getLTCapGains() for symbol in basket.index})
         # If requested, lookup each security on ETFDB to categorize as bonds/municipals.
         if categorize:
-            self.taxes = brackets.getTaxesByAsset(basket.index)
+            self.taxes = self.brackets.getTaxesByAsset(basket.index)
 
         self.data   = Driver.getData(basket.index)
 
@@ -75,11 +74,6 @@ class TaxablePortfolio:
 
         # Drop NAs for use in building portfolio (want all symbols live)
         self.prices    = self.prices_pr.dropna()
-
-        if from_date is not None:
-            self.prices    = self.prices[from_date:]
-            self.prices_tr = self.prices_tr[from_date:]
-            self.prices_pr = self.prices_pr[from_date:]
 
         # Build dividends dataframe
         div_data  = Utils.getDivs(self.data)

@@ -149,9 +149,7 @@ class Driver:
     
     @staticmethod
     def getData(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataFrame]:
-        """
-        Load historical price data either from cache or API.
-        """
+        # Load historical price data either from cache or API.
         data = {}
         for symbol in symbols:
             # Store downloaded data into its own dataframe to avoid truncating index to prior symbols.
@@ -294,13 +292,7 @@ class Utils:
 
     @staticmethod
     def getMaxDrawdown(ts: Union[pd.Series, List[float]], index=False) -> float:
-        """
-        Compute max drawdown on price history.
-
-        ts:     pd.Series or list of prices
-        index:  (optional) flag whether to return the location of the drawdown
-        returns maximum drawdown amount, and location in series if index=True
-        """
+        # Location of drawdown in series if index=True
         maxdraw = 0
         peak    = -99999
         point   = -1
