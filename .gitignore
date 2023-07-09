@@ -1,3 +1,4 @@
+portfolio.egg-info/
 *.so
 .vscode/
 __pycache__/
