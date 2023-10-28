@@ -1,32 +1,31 @@
 # portfolio
-Quantitative portfolio analytics I built for the investments I manage.
+Quantitative portfolio analytics I built for the investments I manage. Recently revamped!
 
 ## Components
-<code>service.py</code><br>
-Lightweight API clients for various financial data providers. Most heavily used is AlphaVantage, through which up to 20 years of prices, dividends, and earnings can be retrieved for stocks, ETFs, and mutual funds. Quandl is supported for a few datasets as well. Also includes Polygon and IEX which I briefly tried out. 
+<code>service.py</code> - lightweight API client for AlphaVantage which offers up to 20 years of prices, dividends, and earnings
 
-<code>risk.py</code><br>
-Retrieves, processes, and runs some metrics on data. 
+<code>risk.py</code> - retrieves, processes, and runs some metrics on data
 
-<code>analytics.py</code><br>
-Factor decomposition, taxable portfolio analysis, and Monte Carlo portfolio projections.
+<code>analytics.py</code> - taxable portfolio analysis
 
-Create two folders in the directory from which this code is executed -- <code>data</code> and <code>keys</code>. The keys folder should hold a plaintext file for each API with ending ".keys" containing the authentication token(s). The data folder is used to cache downloaded prices in csv files. A csv is re-downloaded when its data is requested and the age of the file exceeds a specified threshold (default is 10 days.)  
+<code>factors.py</code> - factor decomposition
+
+<code>mc.py</code> - MonteCarlo portfolio projections
+
+This library requires two folders -- <code>data</code> and <code>keys</code>. The keys folder should hold a plaintext file for each API with ending ".keys" containing the authentication token(s). The data folder is used to cache downloaded prices in csv files. A csv is re-downloaded when its data is requested and the age of the file exceeds a specified threshold (default is 10 days.) These can be in the same directory from where the code is run or overriden using enviroment varaibles.
 
 ## Example
 ### Example 1: basic risk/return data
 ```
-# If running from a different folder, can use sys.path hack:
-import sys; sys.path.append('path_containing_portfolio_folder')
-from portfolio import risk, analytics
+from portfolio.risk import Driver, Utils
 
 # Retrieve data for some macro ETFs
-data = risk.get_data(['SPY','QQQ','AGG','HYG'])
-prices = risk.get_prices(data).dropna()
+data = Driver.getData(['SPY','QQQ','AGG','HYG'])
+prices = Utils.getPrices(data).dropna()
 
 # table is dataframe with historic risk/return metrics and current yields
 # covar is the covariance matrix of returns
-table, covar = risk.get_metrics(prices, data=data)
+table, covar = Utils.getMetrics(prices, data=data)
 ```
 Year-to-date performance for multiple ETFs can be incorporated into a chart like the below (labelled by asset class.)<br>
 <img src="https://github.com/idrach55/portfolio/blob/main/plots/ytd-assets.png?raw=true" width=600>
@@ -36,15 +35,16 @@ Historic risk/return metrics given a portfolio's composition.<br>
 
 ### Example 2: single security factor decomposition
 ```
-prices = risk.get_prices(risk.get_data(['AAPL']))
+from portfolio.factors import FactorUniverse, decompose
+prices = Utils.getPrices(Driver.getData(['AAPL']))
 
 # get price series for some factors I call 'style'
-factors = analytics.get_factors('style')
+factors = FactorUniverse.STYLE.getFactors()
 
 # r_squared for the factor decomp
 # pred is the predicted price series using the decomp
 # df outlines the coefficients
-r_squared, pred, df = analytics.decompose(prices['AAPL'], factors)
+r_squared, pred, df = decompose(prices['AAPL'], factors)
 ```
 
 ## In-Depth Analytics
@@ -52,8 +52,8 @@ r_squared, pred, df = analytics.decompose(prices['AAPL'], factors)
 I set up 3 factor sets: <code>style</code>, <code>asset</code>, and <code>sector</code>. Each of these are built out of the total returns on ETFs because I couldn't find a free/cheap factor index data source. I generally aimed to use ETFs with 5y+ history. One issue with ETFs is that they bleed by their management fees. Further, less liquid ETFs may appear more volatile than their underlying asset(s). 
 
 There are 2 functions to perform decomposition:<br>
-<code>analytics.decompose</code> -- Ordinary least-squares linear regression.<br>
-<code>analytics.decompose_const</code> -- Uses <code>scipy.minimize</code> on the sum-of-squares constraining the coefficients to be long-only and sum to unity. This can be useful for finding an approximate portfolio without shorting/leverage.
+<code>factors.decompose</code> -- Ordinary least-squares linear regression.<br>
+<code>factors.decompose_const</code> -- Uses <code>scipy.minimize</code> on the sum-of-squares constraining the coefficients to be long-only and sum to unity. This can be useful for finding an approximate portfolio without shorting/leverage.
 #### <code>style</code>
 Loosely based on the usual sort of quant factors. I did some testing/design with the intent for them to be mostly orthogonal. These formulae refer to the tickers of each ETF.
 |factor name|formula|description|
@@ -110,7 +110,7 @@ These are single ETF factors meant to represent basic portfolio building blocks.
 Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
 
 ### Portfolio Monte Carlo
-The class <code>analytics.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon. 
+The class <code>mc.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon. 
 
 Performance and max drawdown at different percentiles for a given simulation.<br>
 <img src="https://github.com/idrach55/portfolio/blob/main/plots/portfolio-mc.png?raw=true" width=800>
