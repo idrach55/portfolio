@@ -5,7 +5,7 @@ Date: 4/22/2023
 MC portfolio projections.
 """
 
-from typing import Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ from arch.univariate import GARCH, Normal, ZeroMean
 # import portfolio.mcpp as mcpp
 from portfolio.analytics import TaxablePortfolio, TaxBrackets
 from portfolio.factors import FactorUniverse, decompose_const
-from portfolio.risk import Driver, Utils
+from portfolio.risk import CloseMethod, Driver, Utils
 
 
 class Garch:
@@ -46,6 +46,7 @@ class Garch:
     def getLongRunVol(fit, scale=100):
         return np.sqrt(fit.params['omega'] / (1.0 - fit.params['alpha[1]'] - fit.params['beta[1]']) * 252) / scale
 
+    @staticmethod
     def fit(ret: pd.Series):
         # For numerical stability, multiply returns by 100x. 
         # omega scales quadratically, other params are constant
@@ -54,6 +55,7 @@ class Garch:
         am.distribution = Normal() # GeneralizedError()
         return am.fit(disp='off')
 
+    @staticmethod
     def fitMulti(symbols):
         # Normalize & winsorize returns, then fit GARCH(1,1).
         returns = {}
@@ -78,6 +80,7 @@ class Garch:
         params.index = symbols
         return returns, fits, params, pd.DataFrame(corr, columns=symbols, index=symbols)
 
+    @staticmethod
     def getMCPaths(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
         paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
         sigma_2 = np.ones(shape=(num_paths, num_steps, len(drifts))) + sigma_last**2
@@ -90,6 +93,7 @@ class Garch:
                 paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t,symbol_idx]
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
     
+    @staticmethod
     def getMCPathsCpp(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
         assert False, "only use intentionally, requires building with pybind"
         paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
@@ -107,26 +111,8 @@ class Garch:
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
 # Asset replication for Monte Carlo
-def do_basket(basket, cutoff=0.01):
-    removes = []
-    for remove in removes:
-        remove_idx = np.where(basket.index == remove)[0][0]
-        basket = basket[basket.index[0:remove_idx].append(basket.index[remove_idx+1:])]
-
-    basket /= basket.sum()
-
-    basket_ = basket[basket > cutoff]
-    basket_ /= basket_.sum()
-
-    dropped = 100.0 - 100.0*basket[basket_.index].sum()
-    print(f'dropped {len(basket) - len(basket_)} name(s) totaling {dropped:.2f}%')
-
-    # Just load for later.
-    _data = Driver.getData(basket_)
-    return basket_
-
-def getReplication(basket: pd.Series, ltcma: pd.DataFrame):
-    basket_ = do_basket(basket)
+def getReplication(basket: pd.Series, ltcma: pd.DataFrame) -> pd.Series:
+    basket_ = Utils.doBasket(basket)
     folio = TaxablePortfolio(basket_)
     factors = FactorUniverse.ASSET.getFactors()
     _rsq, weights = decompose_const(folio.value, factors)
@@ -138,10 +124,10 @@ class MCPortfolio:
         self.brackets = brackets
         self.taxes = brackets.getTaxesByAsset(basket.index)
         self.data = Driver.getData(basket.index)
-        self.prices = Utils.getPrices(self.data, field='close')
+        self.prices = Utils.getPrices(self.data, method=CloseMethod.RAW)
         self.yields = Utils.getIndicYields(self.data, last=True)
 
-    def generate_paths(self, years=10, drifts=None, vols=None, N=1000):
+    def genPaths(self, years=10, drifts=None, vols=None, N=1000):
         # Use GARCH(1,1) with Multivariate Normal innovations.
         _, fits, params, corr = Garch.fitMulti(self.basket.index)
         sigma_last = np.array([fit.conditional_volatility[-1] for fit in fits.values()])
@@ -152,7 +138,7 @@ class MCPortfolio:
         paths = Garch.getMCPaths(self.drifts.values, corr, sigma_last, params, num_paths=N, num_steps=years*252)
         self.paths = np.concatenate([np.ones(shape=(paths.shape[0], 1, paths.shape[2])), paths], axis=1)
 
-    def build(self, init_value, withdraw_fixed, withdraw_pct, fee=0.00, withdraw_explicit=None):
+    def build(self, init_value: float, withdraw_fixed: Union[float, pd.Series, List[float]], withdraw_pct: Union[float, List[float]], fee=0.00, withdraw_explicit=None):
         N = self.paths.shape[0]
         qtr_index   = np.arange(0, (self.paths.shape[1] - 1) // 63 + 1) * 63
         self.shares = np.zeros(shape=(N, qtr_index.shape[0], self.paths.shape[2])) + (self.basket.values * init_value)
@@ -187,15 +173,15 @@ class MCPortfolio:
             self.costs[:,qtr]  = (shares_to_trade > 0) * amended_basis + (shares_to_trade < 0) * self.costs[:,qtr-1]
 
             self.gains[:,qtr]  = ((shares_to_trade < 0) * -shares_to_trade * (self.paths[:,qtr_index[qtr]] - self.costs[:,qtr-1])).sum(axis=1)
-            self.value[:,qtr]  -= np.maximum(self.gains[:,qtr], 0.0) * self.brackets['div']
+            self.value[:,qtr]  -= np.maximum(self.gains[:,qtr], 0.0) * self.brackets.getLTCapGains()
         
         # Snap negative portfolios to zero.
         for path_idx, step_idx in zip(np.where(self.value <= 0)[0], np.where(self.value <= 0)[1]):
             self.value[path_idx, step_idx:] = 0.0
 
-    def get_undl_paths(self):
+    def getPaths(self) -> pd.DataFrame:
         # Return performance of underlying portfolio (assuming no tax/withdrawals) for each path.
         return np.cumprod(1.0 + (self.basket.values * (self.paths[:,1:,:] / self.paths[:,:-1,:] - 1.0)).sum(axis=2), axis=1)
 
-    def get_max_drawdowns(self):
+    def getMaxDrawdowns(self):
         return [Utils.getMaxDrawdown(path) for path in self.value if path[-1] > 0]

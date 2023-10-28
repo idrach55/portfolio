@@ -38,8 +38,7 @@ class AlphaVantage:
         r = requests.get(url)
 
         # If time series key unavailable, data not retrieved - raise error.
-        if r.json().get('Time Series (Daily)') is None:
-            raise Exception(r.json()['Note'])
+        assert r.json().get('Time Series (Daily)') is not None, f'missing data for {symbol}'
 
         # Assume json is well-formed and includes data.
         data = pd.DataFrame(r.json()['Time Series (Daily)']).T[::-1].astype(np.float)

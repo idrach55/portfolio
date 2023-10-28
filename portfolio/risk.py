@@ -58,15 +58,6 @@ class Driver:
             os.remove('data.zip')
 
     @staticmethod
-    def getHasOptions(symbol: str) -> bool:
-        r = requests.get('https://finance.yahoo.com/quote/{}/options?p={}'.format(symbol, symbol))
-        soup = BeautifulSoup(r.text, features='lxml')
-        for span in soup.find_all('span'):
-            if span.get_text() == 'Options data is not available':
-                return False
-        return True
-
-    @staticmethod
     def getBlackRockData(etf: str) -> pd.DataFrame:
         # Get iShares ETF composiiton.
         etfs = {'IVV': '/us/products/239726/ishares-core-sp-500-etf',
@@ -105,38 +96,6 @@ class Driver:
         return category
     
     @staticmethod
-    def getTreasuryData() -> pd.DataFrame:
-        url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=all'
-        data = []
-        dates = []
-        page_idx = 1
-        while True:
-            page_url = url+f'&page={page_idx}'
-            r = requests.get(page_url)
-            soup = BeautifulSoup(r.text, 'lxml')
-            entries = soup.find_all('entry')
-            if len(entries) <= 1:
-                break
-            for entry in entries:
-                dates.append(pd.to_datetime(entry.find('d:new_date').text))
-                value = {}
-                for month in [1,3,6]:
-                    key = f'd:bc_{month}month'
-                    if entry.find(key) is None:
-                        continue
-                    value[f'{month}m'] = float(entry.find(key).text)/100.0
-                for year in [1,2,3,5,7,10,20,30]:
-                    key = f'd:bc_{year}year'
-                    if entry.find(key) is None:
-                        continue
-                    value[f'{year}y'] = float(entry.find(key).text)/100.0
-                data.append(value)
-            page_idx += 1
-        df = pd.DataFrame(data)
-        df.index = dates
-        return df
-    
-    @staticmethod
     def getIsCached(symbol: str):
         existing_data = os.listdir(DATA_DIR)
         existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
@@ -146,6 +105,46 @@ class Driver:
             return (datetime.today() - data_date).days, fname
         else:
             return -1, None
+    
+    @staticmethod
+    def getTreasuryData(match_idx = None, data_age_limit: int = 10) -> pd.DataFrame:
+        data_age, fname = Driver.getIsCached('treasury')
+        if data_age != -1 and data_age <= data_age_limit:
+            df = pd.read_csv('{}/{}'.format(DATA_DIR, fname),index_col=0)
+            df.index = pd.to_datetime(df.index)
+        else:
+            url = 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=all'
+            data = []
+            dates = []
+            page_idx = 1
+            while True:
+                page_url = url+f'&page={page_idx}'
+                r = requests.get(page_url)
+                soup = BeautifulSoup(r.text, 'lxml')
+                entries = soup.find_all('entry')
+                if len(entries) <= 1:
+                    break
+                for entry in entries:
+                    dates.append(pd.to_datetime(entry.find('d:new_date').text))
+                    value = {}
+                    for month in [1,3,6]:
+                        key = f'd:bc_{month}month'
+                        if entry.find(key) is None:
+                            continue
+                        value[f'{month}m'] = float(entry.find(key).text)/100.0
+                    for year in [1,2,3,5,7,10,20,30]:
+                        key = f'd:bc_{year}year'
+                        if entry.find(key) is None:
+                            continue
+                        value[f'{year}y'] = float(entry.find(key).text)/100.0
+                    data.append(value)
+                page_idx += 1
+            df = pd.DataFrame(data)
+            df.index = dates
+        if match_idx is None:
+            return df
+        subset_idx = df.index.intersection(match_idx)
+        return df.loc[subset_idx]
     
     @staticmethod
     def getData(symbols: List[str], data_age_limit: int = 10) -> Dict[str, pd.DataFrame]:
@@ -168,15 +167,8 @@ class Driver:
                 os.remove('{}/{}'.format(DATA_DIR,fname))
 
             # If program flow gets here, data was either unavailable or too old.
-            try:
-                # Set up alphavantage API - uses default keyfile.
-                service = av()
-                data_single = service.chart(symbol, adjusted=True)
-            except:
-                # Likely from limit on 5 requests/minute.
-                # Drop the symbol and the user may re-run if desired (others will be cached then).
-                print('error: failed to load {}'.format(symbol))
-                continue
+            service = av()
+            data_single = service.chart(symbol, adjusted=True)
             data_single.to_csv('{}/{}_{}.csv'.format(DATA_DIR,symbol,datetime.today().strftime('%d%b%y')))
             data_single.index = pd.to_datetime(data_single.index)
             data[symbol] = data_single
@@ -425,46 +417,31 @@ class Utils:
             divstd = Utils.getDividendVol(data)
             metrics = metrics.assign(divs=yields, divstd=divstd[0])
         return metrics, covar
+    
+    @staticmethod
+    def getRiskFree(match_idx: pd.Series) -> float:
+        # Get annualized risk-free rate as compounded 1m t-bills over specified timeframe.
+        treasury = Driver.getTreasuryData(match_idx=match_idx)
+        years = Utils.getYears(treasury)
+        return np.log(np.exp(np.sum(treasury['1m']/360)))/years
+    
+    @staticmethod
+    def doBasket(basket: pd.Series, cutoff=0.01) -> pd.Series:
+        removes = []
+        for remove in removes:
+            remove_idx = np.where(basket.index == remove)[0][0]
+            basket = basket[basket.index[0:remove_idx].append(basket.index[remove_idx+1:])]
+        basket /= basket.sum()
 
-def get_treasury(match_idx=None, data_age_limit=10) -> pd.DataFrame:
-    """
-    Get treasury data from Quandl. Same method as for stocks -- will check for existing data
-    downloaded within past 10 days and will refresh otherwise.
+        fixed = basket[basket > cutoff]
+        fixed /= fixed.sum()
 
-    match_idx:  index of timeseries along which to take subset of treasury data
-    returns     dataframe of treasury yields by tenor
-    """
+        dropped = 100.0 - 100.0*basket[fixed.index].sum()
+        print(f'dropped {len(basket) - len(fixed)} name(s) totaling {dropped:.2f}%')
 
-    # Load cached data if available and within certain age (days).
-    existing_data = os.listdir(f'{DATA_DIR}/')
-    existing_syms = {fname[:fname.find('_')]: fname for fname in existing_data}
-
-    reload = True
-    if 'treasury' in existing_syms.keys():
-        fname = existing_syms['treasury']
-        data_date = pd.to_datetime(fname[fname.find('_')+1:fname.find('.')])
-        if (datetime.today() - data_date).days <= data_age_limit:
-            treasury = pd.read_csv('{}/{}'.format(DATA_DIR,fname),index_col=0)
-            treasury.index = pd.to_datetime(treasury.index)
-            reload = False
-        else:
-            os.remove('{}/{}'.format(DATA_DIR,fname))
-    if reload:
-        treasury = Driver.getTreasuryData()
-        treasury.to_csv('{}/treasury_{}.csv'.format(DATA_DIR,datetime.today().strftime('%d%b%y')))
-    if match_idx is None:
-        return treasury
-    subset_idx = treasury.index[treasury.index.isin(match_idx)]
-    return treasury.loc[subset_idx]
-
-def get_risk_free(match_idx: pd.Series) -> float:
-    """
-    Get annualized risk-free rate as compounded 1m t-bills over specified timeframe.
-    match_idx:  index of timeseries along which to take subset of treasury data
-    """
-    treasury = get_treasury(match_idx=match_idx)
-    years = Utils.getYears(treasury)
-    return np.log(np.exp(np.sum(treasury['1m']/360)))/years
+        # Just load for later.
+        _data = Driver.getData(fixed.index)
+        return fixed
 
 class Earnings:
     @staticmethod
@@ -520,33 +497,3 @@ class Earnings:
             quarter = pd.PeriodIndex(earns[symbol].fiscalDateEnding, freq='Q')
             earns_df[symbol] = pd.Series(earns[symbol].groupby(quarter).sum().reportedEPS, name=symbol)
         return earns_df
-
-# Bond Math
-class Bond:
-    @staticmethod
-    def getSchedule(maturity: str) -> pd.PeriodIndex:
-        # Build semi-annual schedule ending at maturity and starting at least today.
-        dates = pd.period_range(end=maturity, freq='6M', periods=100).to_timestamp()
-        return dates[dates >= datetime.today()] + (pd.to_datetime(maturity) - dates[-1])
-
-    @staticmethod
-    def getPv(coupon: float, rate: float, maturity: str) -> float:
-        dates = Bond.getSchedule(maturity)
-        years = (dates - datetime.today()).days/360
-        return 100.0 * coupon/2 * np.sum(1.0 / (1.0 + rate)**years) + 100.0 / (1.0 + rate)**years[-1]
-
-    @staticmethod
-    def getYield(pv: float, coupon: float, maturity: str):
-        return opt.brentq(lambda rate: Bond.getPv(coupon, rate, maturity) - pv, -0.05, 0.50)
-
-    @staticmethod
-    def getCallDate(pv: float, coupon: float, rate: float, maturity: str):
-        # Solve for call date of bond, given coupon, YTC, and max maturity. Assumes all coupon dates are call dates.
-        dates = Bond.getSchedule(maturity)
-        idx   = 0
-        diff  = np.abs(Bond.getPv(coupon, rate, dates[0]) - pv)
-        for idx_ in range(1, len(dates)):
-            if np.abs(Bond.getPv(coupon, rate, dates[idx_]) - pv) < diff:
-                diff = np.abs(Bond.getPv(coupon, rate, dates[idx_]) - pv)
-                idx = idx_ 
-        return dates[idx], np.round(Bond.getPv(coupon, rate, dates[idx]), 2)

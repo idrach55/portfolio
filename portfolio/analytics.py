@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from .risk import CloseMethod, Driver, FundCategory, Utils, get_risk_free
+from .risk import CloseMethod, Driver, FundCategory, Utils
 
 
 @dataclass
@@ -102,9 +102,7 @@ class TaxablePortfolio:
         self.total_divs = self.total_inco * (1.0 - self.reinvest)
 
     def get_cashflow(self):
-        """
-        Sum post-tax income in each period and return as step function with index as self.value.
-        """
+        # Sum post-tax income in each period and return as step function with index as self.value.
         yearly = self.total_divs.groupby(self.total_divs.index.year).sum()
         cashflow = self.value.copy()
         for year in yearly.index:
@@ -112,20 +110,15 @@ class TaxablePortfolio:
         return cashflow
 
     def get_trailing_yield(self, days=63, smooth=True):
-        """
-        Get post-tax yield as annualized sum of quarter's income / value on last day of quarter.
-
-        smooth: use the rolling quarterly mean of the income time series
-        """
+        # Get post-tax yield as annualized sum of quarter's income / value on last day of quarter.
+        # smooth: use the rolling quarterly mean of the income time series
         trailing_inco = 252.0 / days * self.total_inco.rolling(days).sum() 
         if smooth:
             trailing_inco = trailing_inco.rolling(63).mean()
         return (trailing_inco / self.value).dropna()
 
     def get_metrics(self, align=False):
-        """
-        Get metrics for underlyings and portfolio. Include taxable yield (by divs) in sharpe, but show yields as taxable (by income) in dataframe.
-        """
+        # Get metrics for underlyings and portfolio. Include taxable yield (by divs) in sharpe, but show yields as taxable (by income) in dataframe.
         # Compute volatility of post-tax dividend yield
         divstd, divdraw = Utils.getDividendVol(self.data)
 
@@ -146,7 +139,7 @@ class TaxablePortfolio:
         returns = self.value.pct_change()[1:]
         vol   = np.sqrt( (np.log(1.0 + returns)**2).mean()*252 )
         dnvol = np.sqrt( (np.log(1.0 + returns[returns < 0.0])**2).mean()*252 )
-        rf    = get_risk_free(self.value.index)
+        rf    = Utils.getRiskFree(self.value.index)
 
         # Requote PR/TR using weights & full history per security, rather than only full portfolio's history.
         sharpe   = (np.dot(self.basket, metrics.tr) - rf)/vol

@@ -1,19 +1,21 @@
-from .risk import Driver, Utils
+from .risk import CloseMethod, Driver, Utils
 
 
-class TestPortfolio:
+class TestRisk:
     def testGetPrices(self):
         # We know these values and assume data remains constant...
-        px = Driver.getPrices(['SPY']).loc['2020']
+        # CloseMethod.ADJUSTED would modify old prices
+        px = Driver.getPrices(['SPY'], method=CloseMethod.RAW).loc['2020']
         assert len(px) == 253
-        assert px['SPY'].loc['2020-01-02'].round(2) == 307.20
-        assert px['SPY'].loc['2020-12-31'].round(2) == 360.27
+        assert px['SPY'].loc['2020-01-02'].round(2) == 324.87
+        assert px['SPY'].loc['2020-12-31'].round(2) == 373.88
 
     def testGetIsCached(self):
         # Assuming tests run sequentially, data will be cached from above.
         assert Driver.getIsCached('SPY')
 
     def testGetMetrics(self):
+        # Despite adjusted prices changing, the stats should be the same
         px = Driver.getPrices(['SPY']).loc['2020']
         expected = {
             'tr': 0.1598,
