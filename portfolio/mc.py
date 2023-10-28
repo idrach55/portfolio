@@ -92,23 +92,6 @@ class Garch:
                     sigma_2[:,t,symbol_idx] = params.omega[symbol_idx] + params.alpha[symbol_idx] * paths[:,t-1,symbol_idx]**2 + params.beta[symbol_idx] * sigma_2[:,t-1,symbol_idx]
                 paths[:,t,symbol_idx] = np.sqrt(sigma_2[:,t,symbol_idx]) * noise[:,t,symbol_idx]
         return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
-    
-    @staticmethod
-    def getMCPathsCpp(drifts: np.array, corr: pd.DataFrame, sigma_last: np.array, params: pd.DataFrame, num_paths=1000, num_steps=252):
-        assert False, "only use intentionally, requires building with pybind"
-        paths   = np.zeros(shape=(num_paths, num_steps, len(drifts)))   
-        sigma_2 = np.ones(shape=(num_paths, num_steps, len(drifts))) + sigma_last**2
-            
-        noise = np.random.multivariate_normal([0.0]*len(drifts), corr, size=(num_paths, num_steps))
-        mcpp.genPaths(
-            noise,
-            params.omega.values,
-            params.alpha.values,
-            params.beta.values,
-            sigma_2,
-            paths
-        )
-        return np.exp(drifts/252.0 + paths/100).cumprod(axis=1)
 
 # Asset replication for Monte Carlo
 def getReplication(basket: pd.Series, ltcma: pd.DataFrame) -> pd.Series:
