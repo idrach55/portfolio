@@ -71,6 +71,7 @@ asset,US Equity Dividend,VYM
 asset,US REITs,IYR
 asset,Commodities,GSG"""
 
+
 class FactorUniverse(Enum):
     STYLE = 1
     SECTOR = 2
@@ -78,51 +79,53 @@ class FactorUniverse(Enum):
 
     @staticmethod
     def create(universe: str) -> FactorUniverse:
-        assert universe in ['style', 'sector', 'asset']
-        if universe == 'style':
+        assert universe in ["style", "sector", "asset"]
+        if universe == "style":
             return FactorUniverse.STYLE
-        elif universe == 'sector':
+        elif universe == "sector":
             return FactorUniverse.SECTOR
-        elif universe == 'asset':
+        elif universe == "asset":
             return FactorUniverse.ASSET
 
     @staticmethod
     def makeFactorsStyle(returns: pd.DataFrame) -> pd.DataFrame:
         # Treasury bonds: SHY = 1-3y, IEI = 3-7y, IEF = 7-10y, TLH = 10-20y, TLT = 20y+
         factors = pd.DataFrame()
-        factors['equities'] = returns.VT
-        factors['rates'] = returns.IEI
-        factors['credit'] = returns.HYG - returns.IEI
-        factors['commods'] = returns.GSG
+        factors["equities"] = returns.VT
+        factors["rates"] = returns.IEI
+        factors["credit"] = returns.HYG - returns.IEI
+        factors["commods"] = returns.GSG
 
         # Secondary macro
-        factors['inflation'] = regress_factor(returns['TIP'], returns[['IEF']])
-        factors['emerging'] = 0.5*(returns.EEM - returns.VTI + returns.EMB - returns.IEF)
-        factors['usequity'] = returns.VTI - returns.EFA
-        factors['usdollar'] = returns.UUP
+        factors["inflation"] = regress_factor(returns["TIP"], returns[["IEF"]])
+        factors["emerging"] = 0.5 * (
+            returns.EEM - returns.VTI + returns.EMB - returns.IEF
+        )
+        factors["usequity"] = returns.VTI - returns.EFA
+        factors["usdollar"] = returns.UUP
 
         # Macro style
-        factors['shortvol'] = regress_factor(returns['PUTW'], returns[['VTI']])
-        factors['municipal'] = returns.MUB - returns.IEF
-        factors['realestate'] = returns.IYR - returns.VTI
+        factors["shortvol"] = regress_factor(returns["PUTW"], returns[["VTI"]])
+        factors["municipal"] = returns.MUB - returns.IEF
+        factors["realestate"] = returns.IYR - returns.VTI
 
         # Equity style factors
-        factors['smallcap'] = returns.IWM - returns.VTI
-        factors['lowrisk']  = returns.USMV - returns.VTI
-        factors['momentum'] = returns.MTUM - returns.VTI
-        factors['quality']  = returns.QUAL - returns.VTI
-        factors['value']    = returns.IWD - returns.IWF
+        factors["smallcap"] = returns.IWM - returns.VTI
+        factors["lowrisk"] = returns.USMV - returns.VTI
+        factors["momentum"] = returns.MTUM - returns.VTI
+        factors["quality"] = returns.QUAL - returns.VTI
+        factors["value"] = returns.IWD - returns.IWF
         return factors
-    
+
     @staticmethod
     def makeFactorsSector(returns: pd.DataFrame, components: pd.Series) -> pd.DataFrame:
         factors = pd.DataFrame()
         for sector, etf in components.items():
-            if sector != 'market':
+            if sector != "market":
                 factors[sector] = returns[etf]
-                #factors[sector] = regress_factor(returns[etf], returns[['SPY']])
+                # factors[sector] = regress_factor(returns[etf], returns[['SPY']])
         return factors
-    
+
     @staticmethod
     def makeFactorsAsset(returns: pd.DataFrame, components: pd.Series) -> pd.DataFrame:
         factors = pd.DataFrame()
@@ -131,9 +134,9 @@ class FactorUniverse(Enum):
         return factors
 
     def getComponents(self) -> pd.Series:
-        factors = pd.read_csv(StringIO(FACTORS),index_col=1)
+        factors = pd.read_csv(StringIO(FACTORS), index_col=1)
         return factors.loc[factors.universe == self.name.lower()].etf
-    
+
     def getFactors(self) -> pd.DataFrame:
         """
         Generate factors from different universes:
@@ -144,8 +147,8 @@ class FactorUniverse(Enum):
         components = self.getComponents()
 
         # Get data and build prices dataframe
-        data    = Driver.getData(list(components.values))
-        prices  = Utils.getPrices(data).dropna()
+        data = Driver.getData(list(components.values))
+        prices = Utils.getPrices(data).dropna()
         returns = prices.pct_change().iloc[1:]
 
         # Build factors dataframe by transforming components.
@@ -158,15 +161,26 @@ class FactorUniverse(Enum):
         elif self == FactorUniverse.ASSET:
             factors = FactorUniverse.makeFactorsAsset(returns, components)
         # Take cumulative product of returns to generate price series
-        factors  = (1.0 + factors).cumprod(axis=0)
+        factors = (1.0 + factors).cumprod(axis=0)
         # Prepend 1.0 for each factor's initial price: just a niceity
-        return pd.concat([pd.DataFrame({factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]), factors])
-    
+        return pd.concat(
+            [
+                pd.DataFrame(
+                    {factor: 1.0 for factor in factors.columns}, index=[prices.index[0]]
+                ),
+                factors,
+            ]
+        )
+
+
 def regress_factor(A: pd.Series, B: pd.DataFrame) -> pd.Series:
     fitted = OLS().fit(B, A)
     return A - (fitted.coef_ * B).sum(axis=1)
 
-def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series, pd.DataFrame]:
+
+def decompose(
+    prices: pd.Series, factors: pd.DataFrame
+) -> Tuple[float, pd.Series, pd.DataFrame]:
     """
     Perform factor decomp given "market" factors.
 
@@ -182,35 +196,48 @@ def decompose(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Serie
     fitted = OLS().fit(factors_s, returns_s)
     r_squared = fitted.score(factors_s, returns_s)
 
-    df = pd.DataFrame(fitted.coef_,index=factors.columns,columns=['coef'])
-    df = df.assign(weight=100*df.coef.abs()/df.coef.abs().sum())
+    df = pd.DataFrame(fitted.coef_, index=factors.columns, columns=["coef"])
+    df = df.assign(weight=100 * df.coef.abs() / df.coef.abs().sum())
 
     # Compute the cumulative performance portfolio of factors
-    pred = (1.0 + (factors_s*df.coef).sum(axis=1)).cumprod()
+    pred = (1.0 + (factors_s * df.coef).sum(axis=1)).cumprod()
     # Prepend 1.0 to the series: just a niceity
     # pred = pd.Series({prices.index[0]: 1.0}).append(pred)
     return r_squared, pred, df
 
-def decompose_const(prices: pd.Series, factors: pd.DataFrame) -> Tuple[float, pd.Series]:
+
+def decompose_const(
+    prices: pd.Series, factors: pd.DataFrame
+) -> Tuple[float, pd.Series]:
     returns = prices.pct_change()[1:]
     factors = factors.dropna().pct_change()[1:]
     subset_idx = returns.index[returns.index.isin(factors.index)]
     returns_s, factors_s = returns.loc[subset_idx], factors.loc[subset_idx]
-    cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
+    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+
     def err(w):
-        return (((w * factors_s).sum(axis=1) - returns_s)**2).sum()
-    res = opt.minimize(err, [1.0/len(factors.columns)]*len(factors.columns), constraints=cons, bounds=[(0.0,1.0)]*len(factors.columns))
-    weights = pd.Series(res['x'], index=factors.columns)
+        return (((w * factors_s).sum(axis=1) - returns_s) ** 2).sum()
+
+    res = opt.minimize(
+        err,
+        [1.0 / len(factors.columns)] * len(factors.columns),
+        constraints=cons,
+        bounds=[(0.0, 1.0)] * len(factors.columns),
+    )
+    weights = pd.Series(res["x"], index=factors.columns)
     # weights = weights.loc[weights > 0.0]
     weights[weights.abs() < 0.01] = 0.0
     weights /= weights.sum()
     rsq = r2_score(returns_s, (weights * factors_s).sum(axis=1))
     return rsq, weights
 
-def decompose_multi(prices: pd.DataFrame, factors: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.DataFrame]]:
-    rsq  = pd.Series()
+
+def decompose_multi(
+    prices: pd.DataFrame, factors: pd.DataFrame
+) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.DataFrame]]:
+    rsq = pd.Series()
     pred = pd.DataFrame()
-    df   = {}
+    df = {}
     for symbol in prices.columns:
         rsq[symbol], pred[symbol], df[symbol] = decompose(prices[symbol], factors)
     return rsq, pred, df
