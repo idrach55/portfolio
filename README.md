@@ -81,30 +81,6 @@ Loosely based on the usual sort of quant factors. I did some testing/design with
 
 #### <code>asset</code>
 These are single ETF factors meant to represent basic portfolio building blocks.
-|factor name|ETF|
-|-----------|---|
-|<b>fixed income and cash<b>|
-|US Cash|BIL|
-|US Mid Treasuries|IEF|
-|US Long Treasuries|TLT|
-|US Inflation-Linked|TIP|
-|US IG Corp Bonds|LQD|
-|US Agg Bonds|AGG|
-|US HY Bonds|HYG|
-|EM Sovereign Debt|EMB|
-|US Muni 1-15 Yr Blend|MUB|
-|US Muni High Yield|HYD|
-|<b>equities</b>|
-|US Large Cap|VV|
-|US Mid Cap|VO|
-|US Small Cap|VB|
-|EAFE Equity|VEA|
-|EM Equity|VWO|
-|US Equity Value|VTV|
-|US Equity Dividend|VYM|
-|<b>alternatives</b>|
-|US REITs|IYR|
-|Commodities|GSG|
 
 #### <code>sector</code>
 Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
