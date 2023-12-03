@@ -199,9 +199,11 @@ class Driver:
 
     @staticmethod
     def getPrices(
-        symbols: List[str], method: CloseMethod = CloseMethod.ADJUSTED
+        symbols: List[str],
+        method: CloseMethod = CloseMethod.ADJUSTED,
+        data_age_limit: int = 10,
     ) -> pd.DataFrame:
-        data = Driver.getData(symbols)
+        data = Driver.getData(symbols, data_age_limit=data_age_limit)
         prices = pd.concat([df[str(method)] for df in data.values()], axis=1, sort=True)
         prices.columns = data.keys()
         return prices

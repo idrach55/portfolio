@@ -48,7 +48,7 @@ class AlphaVantage:
         ), f"missing data for {symbol}"
 
         # Assume json is well-formed and includes data.
-        data = pd.DataFrame(r.json()["Time Series (Daily)"]).T[::-1].astype(np.float)
+        data = pd.DataFrame(r.json()["Time Series (Daily)"]).T[::-1].astype(float)
         data.index = pd.to_datetime(data.index)
         data.columns = [col[col.find(" ") + 1 :] for col in data.columns]
         return data

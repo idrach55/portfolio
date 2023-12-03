@@ -5,7 +5,9 @@ class TestRisk:
     def testGetPrices(self):
         # We know these values and assume data remains constant...
         # CloseMethod.ADJUSTED would modify old prices
-        px = Driver.getPrices(["SPY"], method=CloseMethod.RAW).loc["2020"]
+        px = Driver.getPrices(["SPY"], method=CloseMethod.RAW, data_age_limit=0).loc[
+            "2020"
+        ]
         assert len(px) == 253
         assert px["SPY"].loc["2020-01-02"].round(2) == 324.87
         assert px["SPY"].loc["2020-12-31"].round(2) == 373.88
