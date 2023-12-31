@@ -10,8 +10,6 @@ Quantitative portfolio analytics I built for the investments I manage. Recently 
 
 <code>factors.py</code> - factor decomposition
 
-<code>mc.py</code> - MonteCarlo portfolio projections
-
 This library requires two folders -- <code>data</code> and <code>keys</code>. The keys folder should hold a plaintext file for each API with ending ".keys" containing the authentication token(s). The data folder is used to cache downloaded prices in csv files. A csv is re-downloaded when its data is requested and the age of the file exceeds a specified threshold (default is 10 days.) These can be in the same directory from where the code is run or overriden using enviroment varaibles.
 
 ## Example
@@ -83,16 +81,4 @@ Loosely based on the usual sort of quant factors. I did some testing/design with
 These are single ETF factors meant to represent basic portfolio building blocks.
 
 #### <code>sector</code>
-Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.  
-
-### Portfolio Monte Carlo
-The class <code>mc.MCPortfolio</code> generates simulated portfolio paths using a multi-asset GARCH model. It takes as inputs a basket, tax brackets, optional withdrawal amount and fees, number of paths, and time horizon. 
-
-Performance and max drawdown at different percentiles for a given simulation.<br>
-<img src="https://github.com/idrach55/portfolio/blob/main/plots/portfolio-mc.png?raw=true" width=800>
-
-#### Underlying Dynamics
-A GARCH(1,1) model with Normal innovations is fit to each security. A correlation matrix is computed among the residuals <code>u_t / sigma_t</code> to parameterize a multivariate Normal which is sampled as the noise for the simulation.
-
-#### Portfolio Building
-The projections output quarterly values along each path. The portfolio maintains constant weights, rebalancing quarterly and paying capital gains taxes if necessary. It also pays roughly the appropriate tax rate on each security. Withdrawals and fees are also taken out quarterly if specified. Using <code>np.quantile</code>, one can examine different percentile values over time. The function <code>get_loss_probs</code> computes what percent of portfolios take a loss at or greater than each threshold within certain timeframes.   
+Consists of SPY as a broad market factor, then a beta-hedged spread (vs SPY) for each XL-sector ETF. Easily outlines under/over-weight sector exposures compared to the S&P 500.
